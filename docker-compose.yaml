@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    image: scraper_service
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    command: python3 main.py  # Should not include --cli

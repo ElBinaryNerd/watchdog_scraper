@@ -1,0 +1,116 @@
+!app/
+!app/**/*
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environment folders
+.env
+venv/
+.env/          # Local environment directory
+*.env          # Environment files (.env should not be committed)
+*.env.sample   # Sample environment file, if it's not meant for production use
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Python egg and build
+*.egg-info/
+*.egg
+dist/
+build/
+*.pyc
+*.pyo
+
+# Editor directories and files
+.idea/       # PyCharm/IntelliJ IDEA
+.vscode/     # Visual Studio Code
+*.swp        # ViM swap files
+*.swo
+*.swn
+
+# Docker related files
+*.tar
+*.bak
+*.backup
+
+# Test-related and temporary files
+__pycache__/
+*.coverage
+*.cover
+
+# Configurations
+config.yaml
+*.ini
+
+# File system storage
+*.sqlite3
+*.db
+
+# Skip docker-compose generated files
+docker-compose.override.yaml
+
+# Skip compressed archives
+*.zip
+*.tar.gz
+*.rar
+
+# Keys and certificates
+*.pem
+*.key
+
+# Skip any files containing credentials or private information
+*.crt
+*.enc
+
+# Skip temporary directories/files used during development
+tmp/
+temp/
+logs/
+debug/
+.trash/
+
+# Node
+node_modules/
+
+# General cache
+*.cache
+*.lock
+
+# Python virtual environments
+Pipfile
+Pipfile.lock
+
+# Ignore IDE specific settings
+*.iml
+
+# Ignore the Git history of the submodules
+.git/modules/*
+
+# Ignore global Git config overrides
+.gitconfig
+
+# Ignore SSH/FTP
+*.pub
+
+# Ignore any sensitive keys (SSH, private key files)
+*.key
+
+# Ignore personal machine specific settings
+*.bak
+*.bak-*
+
+# Skip all Docker build cache layers
+.dockerignore
+Dockerfile.*
