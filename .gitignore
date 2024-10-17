@@ -1,6 +1,9 @@
 !app/
 !app/**/*
 
+# Ignore plugins inside the plugins directory
+app/plugins/*/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

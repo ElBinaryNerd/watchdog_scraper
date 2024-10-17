@@ -53,23 +53,21 @@ async def from_scraper_to_parsed_data(scraped_data):
         logger.error(f"Error in extracting tag sequence: {dom_tag_sequence}")
         dom_tag_sequence = None
 
-    # Prepare the data dictionary
-    data_dict = {
+    # Remove redundant data from scraped_data
+    domain = scraped_data.pop("domain", None)
+    status_code = scraped_data.pop("status_code", None)
+
+    # Update the scraped_data dictionary with newly processed information
+    scraped_data.update({
         "membership": has_membership,
         "text_orig": readable_text,
         "simhash": simhash,
-        "dom_tag_sequence": dom_tag_sequence,
-        "redirect_domain": scraped_data["redirect_domain"],
-        "obfuscation": scraped_data["obfuscation"],
-        "script_paths": scraped_data["script_paths"],
-        "ip": scraped_data["ip"]
-    }
- 
-    #return data_dict
- 
-    # Serialize the data using msgpack
+        "dom_tag_sequence": dom_tag_sequence
+    })
+
+    # Serialize the updated scraped_data using msgpack
     try:
-        serialized_data = msgpack.packb(data_dict)
+        serialized_data = msgpack.packb(scraped_data)
         logger.debug(f"Serialized data size: {len(serialized_data)} bytes")
     except Exception as e:
         logger.error(f"Error during serialization: {e}")
@@ -84,9 +82,9 @@ async def from_scraper_to_parsed_data(scraped_data):
         logger.error(f"Error during compression: {e}")
         return None
 
-    # Prepare and return the final response
+    # Prepare and return the final response without redundancy
     return {
-        "domain": scraped_data["domain"],
-        "status_code": scraped_data["status_code"],
+        "domain": domain,
+        "status_code": status_code,
         "data": compressed_data
     }

@@ -4,6 +4,7 @@ import pulsar
 from dotenv import load_dotenv
 from app.scraper.scraper_service import scrape_website_async
 from app.processing.data_builder import from_scraper_to_parsed_data
+from app.plugins.plugin_manager import PluginManager
 import coolname
 import sys  # Import sys to handle sys.exit(1)
 import time
@@ -64,6 +65,11 @@ async def process_scrape_task(domain):
 
         if not html_content:
             return None
+
+        # Pass the HTML content through the plugins for processing
+        plugin_manager = PluginManager()
+        plugin_data = plugin_manager.process_html(html_content)
+        scraped_data.update(plugin_data)
 
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
