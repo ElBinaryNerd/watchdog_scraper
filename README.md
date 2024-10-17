@@ -11,6 +11,7 @@ The service retrieves domains from an Apache Pulsar broker, scrapes the content 
 - **Scalable Architecture**: Designed to run continuously, processing domains from a Pulsar queue in parallel.
 - **Pulsar Integration**: Uses Apache Pulsar for both consuming domains and publishing results.
 - **Logging**: Provides rotating logs to ensure no out-of-control log growth.
+- **Plugin System**: Allows custom plugins to be added for additional data extraction or analysis.
 
 ## System Requirements
 - Python 3.10
@@ -89,6 +90,44 @@ Logs are stored in the `./logs/service.log` file. The log file is configured to 
 - **`main.py`**: The entry point for the service. Manages Pulsar connections and runs the scraping loop.
 - **`HtmlSublimator`**: A utility for processing scraped HTML, including extracting readable text, detecting forms, and calculating simhashes.
 - **`Data Builder`**: Gathers results from the `HtmlSublimator`, serializes, compresses, and prepares them for Pulsar.
+- **Plugin System**: Allows extending the scraper with additional functionality.
+
+## Plugins
+The plugin system allows developers to add new functionality to the Watchdog Scraper Service without modifying the core code. Plugins can extract additional data from the scraped HTML or perform other custom analysis tasks.
+
+### What Plugins Do
+Plugins receive the raw HTML content scraped from a domain and produce a result that is added to the data being sent to Pulsar. Each plugin must be a subclass of `PluginBase` and resides in its own subdirectory under `app/plugins/`. Plugins can add data to the output dictionary under a key named after the plugin.
+
+### Creating Your Own Plugin
+1. **Create a Plugin Directory**:
+   - Navigate to `app/plugins/`.
+   - Create a new subdirectory for your plugin, e.g., `my_plugin/`.
+
+2. **Create an Entry File**:
+   - Inside your plugin directory, create a Python file with the same name as the directory, e.g., `my_plugin.py`.
+
+3. **Implement the Plugin**:
+   - Import `PluginBase` and create a subclass.
+   - Implement the `process` method to analyze the HTML content and return the results.
+   
+   Example:
+   ```python
+   from app.plugins.plugin_base import PluginBase
+
+   class MyPlugin(PluginBase):
+       def process(self, html_content):
+           # Perform custom analysis
+           result = {
+               'my_data': 'some_value'  # Example data extracted from HTML
+           }
+           return result
+   ```
+
+4. **Register the Plugin**:
+   - The `plugin_manager.py` will automatically discover and register plugins placed in the `app/plugins/` directory.
+
+5. **Use the Plugin**:
+   - Once the plugin is created and placed in `app/plugins/`, it will automatically be used by the service.
 
 ## Development
 ### Running Tests
@@ -108,4 +147,3 @@ This project is licensed under the MIT License.
 
 ## Contact
 For any questions or support, please contact the development team at `faux@tracelon.com`.
-
