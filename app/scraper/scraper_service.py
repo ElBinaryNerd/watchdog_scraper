@@ -5,6 +5,8 @@ import asyncio
 import aiodns
 from async_timeout import timeout
 from urllib.parse import urlparse
+from playwright.async_api import Route, Request
+from playwright._impl._errors import TargetClosedError
 from playwright.async_api import (
     async_playwright,
     TimeoutError as PlaywrightTimeoutError
@@ -127,6 +129,7 @@ async def scrape_website_async(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request))
             )
+            
             page.on(
                 "response",
                 lambda response: script_capture_tasks.append(
@@ -182,6 +185,19 @@ async def scrape_website_async(
                     has_obfuscation = True
                     break
 
+    except asyncio.CancelledError:
+        logger.info(f"Task was cancelled while processing domain {domain}. Cleaning up.")
+        return {
+            "domain": url,
+            "status_code": "Cancelled",
+            "ip": None,
+            "obfuscation": False,
+            "script_paths": [],
+            "redirect_domain": False,
+            "html_content": "",
+            "error": f"Task was cancelled for {domain}"
+        }
+
     except PlaywrightTimeoutError as timeout_error:
         logger.debug(f"Timeout occurred while loading the page {url}: {timeout_error}")
         return {
@@ -209,6 +225,12 @@ async def scrape_website_async(
         }
 
     finally:
+        try:
+            if context:
+                await context.close()
+        except Exception as e:
+            logger.debug(f"Error closing context: {e}")
+
         if page:
             await page.close()
         if browser:
@@ -241,17 +263,43 @@ async def capture_scripts_async(response, script_urls, script_contents):
     except Exception as e:
         logger.debug(f"Error capturing scripts from {response.url}: {e}")
 
-
-async def handle_request(route, request):
+async def handle_request(route: Route, request: Request):
     try:
         url = request.url
+
+        # If resource was already loaded before, abort it
         if url in loaded_resources:
             logger.debug(f"Aborting repeated request to {url}")
-            await route.abort()
+            try:
+                await route.abort()
+            except TargetClosedError:
+                logger.info(f"Failed to abort request for {url} because the target was already closed.")
+            except Exception as e:
+                logger.info(f"Unexpected error while aborting request for {url}: {e}")
         else:
             loaded_resources.add(url)
-            await route.continue_()
+            try:
+                await route.continue_()
+            except TargetClosedError:
+                logger.info(f"Failed to continue request for {url} because the target was already closed.")
+            except Exception as e:
+                logger.info(f"Unexpected error while continuing request for {url}: {e}")
+
     except asyncio.CancelledError:
-        logger.debug(f"Request cancelled: {request.url}")
+        # Log and simply exit; do not attempt any route fulfillment or continuation
+        logger.info(f"Request was cancelled: {request.url}")
+
+    except TargetClosedError:
+        # Just log the fact that target is already closed
+        logger.info(f"Target closed for request: {request.url}")
+
     except Exception as e:
-        logger.debug(f"Error in handling request: {request.url} - {e}")
+        # If any general error occurs, log it and do nothing else
+        logger.info(f"Error in handling request: {request.url} - {e}")
+
+
+
+
+
+
+

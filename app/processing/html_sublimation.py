@@ -40,7 +40,7 @@ class HtmlSublimator:
             body = text.strip() if text else ''
             return f"[TITLE] {title} [/TITLE] [META] {meta} [/META] [BODY] {body} [/BODY]"
         except Exception as e:
-            logger.error(f"Error extracting readable text: {e}")
+            logger.debug(f"Error extracting readable text: {e}")
             return None
 
     def extract_simhash(self, bits=64):
@@ -119,7 +119,7 @@ class HtmlSublimator:
 
             return False
         except Exception as e:
-            logger.error(f"Error detecting membership keywords: {e}")
+            logger.debug(f"Error detecting membership keywords: {e}")
             return False
 
     def _check_text_and_action(self, element_text, element, keyword_pattern):
