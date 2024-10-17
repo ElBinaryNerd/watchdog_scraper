@@ -3,6 +3,7 @@ import logging
 import socket
 import asyncio
 import aiodns
+import warnings
 from async_timeout import timeout
 from urllib.parse import urlparse
 from playwright.async_api import Route, Request
@@ -81,7 +82,7 @@ def detect_obfuscation(js_code, threshold=5, density_threshold=0.05):
 
 async def scrape_website_async(
         url, max_wait_time=14000, check_interval=400,
-        no_change_limit=3, change_limit=8):
+        no_change_limit=3, change_limit=5):
     if not url.startswith("http"):
         url = "https://" + url
 
@@ -248,7 +249,6 @@ async def scrape_website_async(
         "html_content": html_content or "",
     }
 
-
 async def capture_scripts_async(response, script_urls, script_contents):
     try:
         if "javascript" in response.headers.get("content-type", "") and response.status == 200:
@@ -273,29 +273,29 @@ async def handle_request(route: Route, request: Request):
             try:
                 await route.abort()
             except TargetClosedError:
-                logger.info(f"Failed to abort request for {url} because the target was already closed.")
+                logger.debug(f"Failed to abort request for {url} because the target was already closed.")
             except Exception as e:
-                logger.info(f"Unexpected error while aborting request for {url}: {e}")
+                logger.debug(f"Unexpected error while aborting request for {url}: {e}")
         else:
             loaded_resources.add(url)
             try:
                 await route.continue_()
             except TargetClosedError:
-                logger.info(f"Failed to continue request for {url} because the target was already closed.")
+                logger.debug(f"Failed to continue request for {url} because the target was already closed.")
             except Exception as e:
-                logger.info(f"Unexpected error while continuing request for {url}: {e}")
+                logger.debug(f"Unexpected error while continuing request for {url}: {e}")
 
     except asyncio.CancelledError:
         # Log and simply exit; do not attempt any route fulfillment or continuation
-        logger.info(f"Request was cancelled: {request.url}")
+        logger.debug(f"Request was cancelled: {request.url}")
 
     except TargetClosedError:
         # Just log the fact that target is already closed
-        logger.info(f"Target closed for request: {request.url}")
+        logger.debug(f"Target closed for request: {request.url}")
 
     except Exception as e:
         # If any general error occurs, log it and do nothing else
-        logger.info(f"Error in handling request: {request.url} - {e}")
+        logger.debug(f"Error in handling request: {request.url} - {e}")
 
 
 

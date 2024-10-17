@@ -1,6 +1,5 @@
 import asyncio
 import os
-import logging
 import pulsar
 from dotenv import load_dotenv
 from app.scraper.scraper_service import scrape_website_async
@@ -9,6 +8,8 @@ import coolname
 import sys  # Import sys to handle sys.exit(1)
 import time
 from collections import deque
+import warnings  # Import warnings to filter asyncio warnings
+import logging  # Import logging for logging configuration
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,7 +17,7 @@ load_dotenv()
 # Configure logging
 LOG_FILE_PATH = "./logs/service.log"
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.CRITICAL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE_PATH),
@@ -47,10 +48,14 @@ else:
     with open(CLIENT_NAME_FILE, 'w') as file:
         file.write(client_name)
 
-logger.info(f"Service started with client name: {client_name}")
-
 # Deque to store timestamps of processed URLs
 processed_urls_timestamps = deque()
+
+# Suppress asyncio warnings about pending tasks being destroyed
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="coroutine .* was never awaited")
+
+# Set asyncio logging level to suppress warnings about destroyed tasks
+logging.getLogger('asyncio').setLevel(logging.CRITICAL)
 
 async def process_scrape_task(domain):
     try:
@@ -58,22 +63,17 @@ async def process_scrape_task(domain):
         html_content = scraped_data.get("html_content")
 
         if not html_content:
-            logger.debug("No HTML content found for domain: %s", domain)
             return None
 
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
-    except Exception as e:
-        logger.error(f"Error while processing domain {domain}: {e}")
+    except Exception:
         return None
 
 async def consume_and_process():
     client = pulsar.Client(PULSAR_URL)
     consumer = client.subscribe(DOMAIN_TOPIC, subscription_name='my-subscription')
     producer = client.create_producer(RESULT_TOPIC)
-
-    logger.info(f"Connected to Pulsar broker at {PULSAR_IP}:{PULSAR_PORT}")
-    logger.info(f"Subscribed to topic '{DOMAIN_TOPIC}', ready to consume messages.")
 
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
@@ -84,23 +84,20 @@ async def consume_and_process():
                 if result:
                     result['processor'] = client_name
                     producer.send(str(result).encode('utf-8'))
-                    logger.debug(f"Processed and sent result for domain: {result.get('domain')}")
                     # Record the timestamp when the domain is processed
                     processed_urls_timestamps.append(time.time())
             except asyncio.CancelledError:
-                logger.error(f"Task for domain {domain} was cancelled and destroyed.")
-            except Exception as e:
-                logger.error(f"Unexpected error while processing domain {domain}: {e}")
+                pass
+            except Exception:
+                pass
 
     async def track_scraping_count():
-        logger.info("Tracking scraping count started.")
         while True:
             # Calculate the number of URLs processed in the last 60 seconds
             current_time = time.time()
             while processed_urls_timestamps and (current_time - processed_urls_timestamps[0]) > 60:
                 processed_urls_timestamps.popleft()
-
-            logger.info(f"URLs scraped: {len(processed_urls_timestamps)}")
+            logger.info(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
             await asyncio.sleep(60)
 
     try:
@@ -110,26 +107,29 @@ async def consume_and_process():
         while True:
             msg = consumer.receive()
             domain = msg.data().decode('utf-8')
-            logger.debug(f"Received domain: {domain}")
 
             # Start processing the domain while respecting the semaphore limit
             asyncio.create_task(process_domain(domain))
             consumer.acknowledge(msg)
 
             # Small delay to yield control to other tasks
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
+    except Exception:
+        pass
     finally:
+        # Cancel all pending tasks gracefully
+        all_tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        for task in all_tasks:
+            task.cancel()
+        await asyncio.gather(*all_tasks, return_exceptions=True)
+
         client.close()
-        logger.info("Pulsar client closed.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(consume_and_process())
     except KeyboardInterrupt:
-        logger.info("Service interrupted and shutting down.")
-    except Exception as e:
-        logger.error(f"Service encountered an unexpected error: {e}")
+        pass
+    except Exception:
         sys.exit(1)
