@@ -49,7 +49,7 @@ async def dns_resolve_async(domain, timeout_duration=5):
                 return result.addresses[0]
             return None
     except (aiodns.error.DNSError, asyncio.TimeoutError) as e:
-        logger.warning(f"DNS resolution failed for {domain}: {e}")
+        logger.debug(f"DNS resolution failed for {domain}: {e}")
         return None
     except Exception as e:
         logger.error(f"Unexpected error during DNS resolution for {domain}: {e}")
@@ -83,6 +83,7 @@ async def scrape_website_async(
     if not url.startswith("http"):
         url = "https://" + url
 
+    redirect_domain = False
     has_obfuscation = False
     js_filepaths = []
     parsed_url = urlparse(url)
@@ -139,7 +140,7 @@ async def scrape_website_async(
             html_content = await page.content()
             await page.wait_for_selector("body", timeout=max_wait_time)
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(1)
 
             final_url = page.url
             redirect_domain = is_redirected_to_different_domain(url, final_url)
@@ -213,7 +214,7 @@ async def scrape_website_async(
         if browser:
             await browser.close()
 
-        logger.info(f"Scraping completed for {url}")
+        logger.debug(f"Scraping completed for {url}")
 
     return {
         "domain": url,
@@ -234,23 +235,23 @@ async def capture_scripts_async(response, script_urls, script_contents):
                 script_urls.append(response.url)
                 script_contents.append(js_code)
             except Exception as e:
-                logger.warning(f"Failed to capture script content from {response.url}: {e}")
+                logger.debug(f"Failed to capture script content from {response.url}: {e}")
         elif response.status != 200:
-            logger.warning(f"Non-200 status for script: {response.url} with status: {response.status}")
+            logger.debug(f"Non-200 status for script: {response.url} with status: {response.status}")
     except Exception as e:
-        logger.error(f"Error capturing scripts from {response.url}: {e}")
+        logger.debug(f"Error capturing scripts from {response.url}: {e}")
 
 
 async def handle_request(route, request):
     try:
         url = request.url
         if url in loaded_resources:
-            logger.warning(f"Aborting repeated request to {url}")
+            logger.debug(f"Aborting repeated request to {url}")
             await route.abort()
         else:
             loaded_resources.add(url)
             await route.continue_()
     except asyncio.CancelledError:
-        logger.error(f"Request cancelled: {request.url}")
+        logger.debug(f"Request cancelled: {request.url}")
     except Exception as e:
         logger.error(f"Error in handling request: {request.url} - {e}")

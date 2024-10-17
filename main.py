@@ -32,8 +32,8 @@ RESULT_TOPIC = os.getenv('RESULT_TOPIC', 'scraped-results')
 # Pulsar client setup
 PULSAR_URL = f'pulsar://{PULSAR_IP}:{PULSAR_PORT}'
 
-# Limit the number of concurrent tasks
-CONCURRENT_TASKS = 5
+# Load the number of concurrent tasks from .env
+CONCURRENT_TASKS = int(os.getenv('CONCURRENT_TASKS', 5))
 
 # Generate or load client name
 CLIENT_NAME_FILE = "./client_name.txt"
@@ -65,44 +65,54 @@ async def process_scrape_task(domain):
 
 
 async def consume_and_process():
-    client = pulsar.Client(PULSAR_URL)
-    consumer = client.subscribe(
-        DOMAIN_TOPIC, 
-        subscription_name='my-subscription')
-    producer = client.create_producer(RESULT_TOPIC)
-
-    logger.info(f"Connected to Pulsar broker at {PULSAR_IP}:{PULSAR_PORT}")
-    logger.info(f"Subscribed to topic '{DOMAIN_TOPIC}', ready to consume messages.")
-
-    semaphore = asyncio.Semaphore(CONCURRENT_TASKS)
-
-    async def process_domain(domain):
-        async with semaphore:
-            result = await process_scrape_task(domain)
-            if result:
-                result['processor'] = client_name
-                producer.send(str(result).encode('utf-8'))
-                logger.debug(
-                    f"Processed and sent result for domain: {result.get('domain')}"
-                )
-
     try:
+        client = pulsar.Client(PULSAR_URL)
+        consumer = client.subscribe(
+            DOMAIN_TOPIC,
+            subscription_name='my-subscription'
+        )
+        producer = client.create_producer(RESULT_TOPIC)
+
+        logger.info(f"Connected to Pulsar broker at {PULSAR_IP}:{PULSAR_PORT}")
+        logger.info(f"Subscribed to topic '{DOMAIN_TOPIC}', ready to consume messages.")
+
+        semaphore = asyncio.Semaphore(CONCURRENT_TASKS)
+
+        async def process_domain(domain):
+            async with semaphore:
+                result = await process_scrape_task(domain)
+                if result:
+                    result['processor'] = client_name
+                    producer.send(str(result).encode('utf-8'))
+                    logger.debug(
+                        f"Processed and sent result for domain: {result.get('domain')}"
+                    )
+
         while True:
-            msg = consumer.receive()
-            domain = msg.data().decode('utf-8')
-            logger.debug(f"Received domain: {domain}")
+            try:
+                msg = consumer.receive(timeout_millis=5000)  # Add a timeout to avoid blocking indefinitely
+                domain = msg.data().decode('utf-8')
+                logger.debug(f"Received domain: {domain}")
 
-            # Start processing the domain while respecting the semaphore limit
-            asyncio.create_task(process_domain(domain))
-            consumer.acknowledge(msg)
+                # Start processing the domain while respecting the semaphore limit
+                asyncio.create_task(process_domain(domain))
+                consumer.acknowledge(msg)
 
-            # Delay before fetching the next domain
-            await asyncio.sleep(1)
+                # Delay before fetching the next domain
+                await asyncio.sleep(1)
+
+            except pulsar.Timeout:
+                logger.debug("No messages received, checking again...")
 
     except Exception as e:
         logger.error(f"An error occurred: {e}")
     finally:
-        client.close()
+        if 'producer' in locals():
+            producer.close()
+        if 'consumer' in locals():
+            consumer.close()
+        if 'client' in locals():
+            client.close()
         logger.info("Pulsar client closed.")
 
 
