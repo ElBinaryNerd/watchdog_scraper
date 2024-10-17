@@ -6,11 +6,12 @@ from app.dictionary.membership_keywords import membership_keywords
 
 logger = logging.getLogger("HtmlSublimator")
 
+
 class HtmlSublimator:
     # Define the allowed tags and their corresponding hex values
     TAG_HEX_MAP = {
-        "div": "0", "ul": "1", "input": "2", "h2": "3", "h3": "4", "section": "5", 
-        "h1": "6", "h4": "7", "nav": "8", "form": "9", "table": "a", "header": "b", 
+        "div": "0", "ul": "1", "input": "2", "h2": "3", "h3": "4", "section": "5",
+        "h1": "6", "h4": "7", "nav": "8", "form": "9", "table": "a", "header": "b",
         "footer": "c", "article": "d", "aside": "e", "main": "f"
     }
 

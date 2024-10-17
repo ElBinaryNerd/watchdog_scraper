@@ -1,4 +1,3 @@
-import time
 import asyncio
 import os
 import logging
@@ -7,6 +6,7 @@ from dotenv import load_dotenv
 from app.scraper.scraper_service import scrape_website_async
 from app.processing.data_builder import from_scraper_to_parsed_data
 import coolname
+import sys
 
 # Load environment variables from .env file
 load_dotenv()
@@ -47,6 +47,7 @@ else:
 
 logger.info(f"Service started with client name: {client_name}")
 
+
 async def process_scrape_task(domain):
     try:
         scraped_data = await scrape_website_async(domain)
@@ -62,9 +63,12 @@ async def process_scrape_task(domain):
         logger.error(f"Error while processing domain {domain}: {e}")
         return None
 
+
 async def consume_and_process():
     client = pulsar.Client(PULSAR_URL)
-    consumer = client.subscribe(DOMAIN_TOPIC, subscription_name='my-subscription')
+    consumer = client.subscribe(
+        DOMAIN_TOPIC, 
+        subscription_name='my-subscription')
     producer = client.create_producer(RESULT_TOPIC)
 
     logger.info(f"Connected to Pulsar broker at {PULSAR_IP}:{PULSAR_PORT}")
@@ -78,7 +82,9 @@ async def consume_and_process():
             if result:
                 result['processor'] = client_name
                 producer.send(str(result).encode('utf-8'))
-                logger.debug(f"Processed and sent result for domain: {result.get('domain')}")
+                logger.debug(
+                    f"Processed and sent result for domain: {result.get('domain')}"
+                )
 
     try:
         while True:
@@ -98,6 +104,7 @@ async def consume_and_process():
     finally:
         client.close()
         logger.info("Pulsar client closed.")
+
 
 if __name__ == "__main__":
     try:

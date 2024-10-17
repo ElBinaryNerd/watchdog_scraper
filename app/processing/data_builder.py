@@ -6,6 +6,7 @@ import logging
 
 logger = logging.getLogger("DataBuilder")
 
+
 async def from_scraper_to_parsed_data(scraped_data):
     # Get or create the event loop
     loop = asyncio.get_event_loop()
@@ -16,13 +17,13 @@ async def from_scraper_to_parsed_data(scraped_data):
     # Run the methods in parallel using a thread executor to avoid blocking
     logger.debug("Starting membership detection...")
     has_membership_future = loop.run_in_executor(None, sublimator.detect_membership)
-    
+
     logger.debug("Starting readable text extraction...")
     readable_text_future = loop.run_in_executor(None, sublimator.extract_readable_text)
-    
+
     logger.debug("Starting simhash extraction...")
     simhash_future = loop.run_in_executor(None, sublimator.extract_simhash)
-    
+
     logger.debug("Starting tag sequence extraction...")
     dom_tag_sequence_future = loop.run_in_executor(None, sublimator.get_tag_sequence)
 
