@@ -52,7 +52,7 @@ async def dns_resolve_async(domain, timeout_duration=5):
         logger.debug(f"DNS resolution failed for {domain}: {e}")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error during DNS resolution for {domain}: {e}")
+        logger.debug(f"Unexpected error during DNS resolution for {domain}: {e}")
         return None
 
 
@@ -95,7 +95,7 @@ async def scrape_website_async(
 
     resolved_ip = await dns_resolve_async(domain)
     if not resolved_ip:
-        logger.error(f"Domain {domain} does not exist or DNS resolution failed.")
+        logger.debug(f"Domain {domain} does not exist or DNS resolution failed.")
         return {
             "domain": url,
             "status_code": "DNS Error",
@@ -183,7 +183,7 @@ async def scrape_website_async(
                     break
 
     except PlaywrightTimeoutError as timeout_error:
-        logger.error(f"Timeout occurred while loading the page {url}: {timeout_error}")
+        logger.debug(f"Timeout occurred while loading the page {url}: {timeout_error}")
         return {
             "domain": url,
             "status_code": "Timeout",
@@ -196,7 +196,7 @@ async def scrape_website_async(
         }
 
     except Exception as e:
-        logger.error(f"Error while scraping {url}: {e}")
+        logger.debug(f"Error while scraping {url}: {e}")
         return {
             "domain": url,
             "status_code": "Failed",
@@ -254,4 +254,4 @@ async def handle_request(route, request):
     except asyncio.CancelledError:
         logger.debug(f"Request cancelled: {request.url}")
     except Exception as e:
-        logger.error(f"Error in handling request: {request.url} - {e}")
+        logger.debug(f"Error in handling request: {request.url} - {e}")
