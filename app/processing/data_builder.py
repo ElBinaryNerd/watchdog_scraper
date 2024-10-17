@@ -64,7 +64,9 @@ async def from_scraper_to_parsed_data(scraped_data):
         "script_paths": scraped_data["script_paths"],
         "ip": scraped_data["ip"]
     }
-
+ 
+    #return data_dict
+ 
     # Serialize the data using msgpack
     try:
         serialized_data = msgpack.packb(data_dict)
