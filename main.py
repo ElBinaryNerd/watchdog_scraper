@@ -18,7 +18,7 @@ load_dotenv()
 # Configure logging
 LOG_FILE_PATH = "./logs/service.log"
 logging.basicConfig(
-    level=logging.CRITICAL,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE_PATH),
@@ -37,7 +37,7 @@ RESULT_TOPIC = os.getenv('RESULT_TOPIC', 'scraped-results')
 PULSAR_URL = f'pulsar://{PULSAR_IP}:{PULSAR_PORT}'
 
 # Load the number of concurrent tasks from .env
-concurrent_tasks = int(os.getenv('CONCURRENT_TASKS', '20'))
+concurrent_tasks = int(os.getenv('CONCURRENT_TASKS', '10'))
 
 # Generate or load client name
 CLIENT_NAME_FILE = "./client_name.txt"
@@ -56,7 +56,7 @@ processed_urls_timestamps = deque()
 warnings.filterwarnings("ignore", category=RuntimeWarning, message="coroutine .* was never awaited")
 
 # Set asyncio logging level to suppress warnings about destroyed tasks
-logging.getLogger('asyncio').setLevel(logging.CRITICAL)
+logging.getLogger('asyncio').setLevel(logging.DEBUG)
 
 async def process_scrape_task(domain):
     try:
@@ -67,10 +67,11 @@ async def process_scrape_task(domain):
             return None
 
         # Pass the HTML content through the plugins for processing
+        """
         plugin_manager = PluginManager()
         plugin_data = plugin_manager.process_html(html_content)
         scraped_data.update(plugin_data)
-
+        """
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
     except Exception:
@@ -78,7 +79,7 @@ async def process_scrape_task(domain):
 
 async def consume_and_process():
     client = pulsar.Client(PULSAR_URL)
-    consumer = client.subscribe(DOMAIN_TOPIC, subscription_name='my-subscription')
+    consumer = client.subscribe(DOMAIN_TOPIC, subscription_name='shared-scrapers-subscription')
     producer = client.create_producer(RESULT_TOPIC)
 
     semaphore = asyncio.Semaphore(concurrent_tasks)
@@ -111,10 +112,12 @@ async def consume_and_process():
         asyncio.create_task(track_scraping_count())
 
         while True:
+            logging.debug("Awaiting for Pulsar messages...")
             msg = consumer.receive()
             domain = msg.data().decode('utf-8')
 
             # Start processing the domain while respecting the semaphore limit
+            logging.debug(f"URL received and sent for processing: {domain}")
             asyncio.create_task(process_domain(domain))
             consumer.acknowledge(msg)
 
