@@ -20,7 +20,6 @@ venv/
 *.env.sample   # Sample environment file, if it's not meant for production use
 
 # Logs
-logs/
 *.log
 *.log.*
 
