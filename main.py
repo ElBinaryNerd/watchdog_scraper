@@ -4,13 +4,13 @@ import pulsar
 from dotenv import load_dotenv
 from app.scraper.scraper_service import scrape_website_async
 from app.processing.data_builder import from_scraper_to_parsed_data
-from app.plugins.plugin_manager import PluginManager
 import coolname
-import sys  # Import sys to handle sys.exit(1)
+import sys
 import time
 from collections import deque
-import warnings  # Import warnings to filter asyncio warnings
-import logging  # Import logging for logging configuration
+import warnings
+import logging
+import concurrent.futures
 
 # Load environment variables from .env file
 load_dotenv()
@@ -66,38 +66,49 @@ async def process_scrape_task(domain):
         if not html_content:
             return None
 
-        # Pass the HTML content through the plugins for processing
-        """
-        plugin_manager = PluginManager()
-        plugin_data = plugin_manager.process_html(html_content)
-        scraped_data.update(plugin_data)
-        """
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error processing scrape task for domain {domain}: {e}")
         return None
 
 async def consume_and_process():
+    logger.info(f"Initializing Pulsar client {PULSAR_URL}, subscription {DOMAIN_TOPIC} and producer {RESULT_TOPIC}...")
+    
+    # Initialize the Pulsar client
     client = pulsar.Client(PULSAR_URL)
-    consumer = client.subscribe(DOMAIN_TOPIC, subscription_name='shared-scrapers-subscription')
-    producer = client.create_producer(RESULT_TOPIC)
 
+    # Subscribe to the topic
+    consumer = client.subscribe(
+        f"persistent://public/default/{DOMAIN_TOPIC}",
+        subscription_name='scrapers-subscription',
+        consumer_type=pulsar.ConsumerType.Shared  # Use the ConsumerType enum instead of a string
+    )
+    
+    # Create a producer for results
+    producer = client.create_producer(f"persistent://public/default/{RESULT_TOPIC}")
+
+    # Proceed with the semaphore initialization if everything is successful
+    logger.info(f"Initializing Semaphore with {concurrent_tasks} concurrent tasks...")
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
     async def process_domain(domain):
         async with semaphore:
             try:
+                logger.info(f"Initializing scraping process for {domain}...")
                 result = await process_scrape_task(domain)
                 if result:
+                    logger.info(f"Sending scraped result to Pulsar...")
                     result['processor'] = client_name
                     producer.send(str(result).encode('utf-8'))
                     # Record the timestamp when the domain is processed
                     processed_urls_timestamps.append(time.time())
             except asyncio.CancelledError:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error processing domain {domain}: {e}")
 
+    """
     async def track_scraping_count():
         while True:
             # Calculate the number of URLs processed in the last 60 seconds
@@ -106,10 +117,11 @@ async def consume_and_process():
                 processed_urls_timestamps.popleft()
             logger.info(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
             await asyncio.sleep(60)
+    """
 
     try:
         # Start tracking the scraping count in a separate task
-        asyncio.create_task(track_scraping_count())
+        #asyncio.create_task(track_scraping_count())
 
         while True:
             logging.debug("Awaiting for Pulsar messages...")
@@ -124,8 +136,8 @@ async def consume_and_process():
             # Small delay to yield control to other tasks
             await asyncio.sleep(0.5)
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"An error occurred during message consumption: {e}")
     finally:
         # Cancel all pending tasks gracefully
         all_tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
@@ -135,10 +147,13 @@ async def consume_and_process():
 
         client.close()
 
+
 if __name__ == "__main__":
     try:
+        logger.info("starting...")
         asyncio.run(consume_and_process())
     except KeyboardInterrupt:
-        pass
-    except Exception:
+        logger.info("Shutting down gracefully...")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         sys.exit(1)

@@ -96,6 +96,7 @@ async def scrape_website_async(
     script_capture_tasks = []
     html_content = ''
 
+    logger.info(f"Cheching DNS resolution for {domain}...")
     resolved_ip = await dns_resolve_async(domain)
     if not resolved_ip:
         logger.debug(f"Domain {domain} does not exist or DNS resolution failed.")
@@ -127,12 +128,14 @@ async def scrape_website_async(
             logger.info(f"Creating new page...")
             page = await context.new_page()
             
+            """
             await page.route(
                 "**/*",
-                lambda route, request: asyncio.create_task(handle_request(route, request))
+                lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
+            """
             
-
+            """
             logger.info(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -142,6 +145,7 @@ async def scrape_website_async(
                     )
                 )
             )
+            """
 
             logger.info(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
@@ -276,7 +280,7 @@ async def capture_scripts_async(response, script_urls, script_contents):
     except Exception as e:
         logger.error(f"Error capturing scripts from {response.url}: {e}")
 
-async def handle_request(route: Route, request: Request):
+async def handle_request(route: Route, request: Request, loaded_resources):
     try:
         url = request.url
 
@@ -309,6 +313,7 @@ async def handle_request(route: Route, request: Request):
     except Exception as e:
         # If any general error occurs, log it and do nothing else
         logger.error(f"Error in handling request: {request.url} - {e}")
+
 
 
 
