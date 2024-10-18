@@ -57,6 +57,7 @@ async def dns_resolve_async(domain, timeout_duration=5):
     except Exception as e:
         logger.error(f"Unexpected error during DNS resolution for {domain}: {e}")
         return None
+    return None
 
 
 def is_redirected_to_different_domain(initial_url, final_url):
@@ -128,14 +129,11 @@ async def scrape_website_async(
             logger.info(f"Creating new page...")
             page = await context.new_page()
             
-            """
             await page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-            """
-            
-            """
+                        
             logger.info(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -145,8 +143,7 @@ async def scrape_website_async(
                     )
                 )
             )
-            """
-
+            
             logger.info(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
             logger.info(f"Page goto has finished...")

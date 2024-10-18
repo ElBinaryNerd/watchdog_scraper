@@ -11,7 +11,7 @@ async def from_scraper_to_parsed_data(scraped_data):
     # Get or create the event loop
     loop = asyncio.get_event_loop()
 
-    html_content = scraped_data["html_content"]
+    html_content = scraped_data.pop("html_content", None)
     sublimator = HtmlSublimator(html_content)
 
     # Run the methods in parallel using a thread executor to avoid blocking
