@@ -1,8 +1,10 @@
 import re
+import os
 import logging
 import socket
 import asyncio
 import aiodns
+import time
 import warnings
 from async_timeout import timeout
 from urllib.parse import urlparse
@@ -17,16 +19,27 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Set up logging configuration to match the main application's log settings
+# Set up logging configuration
 LOG_FILE_PATH = "./logs/service.log"
+LOG_TO_FILE = False  # Deactivate writing to file by default
+
+# Ensure log directory exists
+log_dir = os.path.dirname(LOG_FILE_PATH)
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+# Configure logging
+handlers = [logging.StreamHandler()]  # Default to only stream handler
+
+if LOG_TO_FILE:  # Only add file handler if logging to file is enabled
+    handlers.append(logging.FileHandler(LOG_FILE_PATH))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE_PATH),
-        logging.StreamHandler()
-    ]
+    handlers=handlers
 )
+
 logger = logging.getLogger("ScraperService")
 
 # Set Coinbase Wallet Browser User-Agent (Example based on known data)
@@ -37,28 +50,20 @@ IPHONE_FIREFOX_AGENT = (
 
 # Set to track already requested URLs
 loaded_resources = set()
+import async_timeout
 
-
-async def dns_resolve_async(domain, timeout_duration=5):
+async def dns_resolve_async(domain, timeout_duration=3):
     """
     Asynchronously resolves a domain name to check if it is reachable.
     """
     resolver = aiodns.DNSResolver()
 
-    try:
-        async with timeout(timeout_duration):
-            result = await resolver.gethostbyname(domain, socket.AF_INET)
-            if result and result.addresses:
-                return result.addresses[0]
-            return None
-    except (aiodns.error.DNSError, asyncio.TimeoutError) as e:
-        logger.error(f"DNS resolution failed for {domain}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error during DNS resolution for {domain}: {e}")
-        return None
-
-
+    async with async_timeout.timeout(timeout_duration):
+        result = await resolver.gethostbyname(domain, socket.AF_INET)
+        if result and result.addresses:
+            return result.addresses[0]
+        return None  # Retornar None si no se encuentran direcciones IP
+    
 def is_redirected_to_different_domain(initial_url, final_url):
     """
     Compare domains to check if redirected to a different domain.
@@ -95,13 +100,25 @@ async def scrape_website_async(
     script_contents = []
     script_capture_tasks = []
     html_content = ''
+    
+    logger.info(f"Checking DNS resolution for {domain}...")
+    resolved_ip = None
 
-    logger.info(f"Cheching DNS resolution for {domain}...")
-    resolved_ip = await dns_resolve_async(domain)
-    if not resolved_ip:
-        logger.debug(f"Domain {domain} does not exist or DNS resolution failed.")
+    try:
+        # Intentar resolver el DNS y permitir que falle
+        resolved_ip = await dns_resolve_async(domain)
+    except asyncio.TimeoutError:
+        logger.error(f"DNS resolution for {domain} timed out.")
+    except aiodns.error.DNSError as e:
+        logger.error(f"DNS resolution failed for {domain} due to DNS error: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during DNS check for {domain}: {e}")
+
+
+    if resolved_ip is None:
+        logger.error(f"DNS resolution failed for {domain}. No IP was resolved.")
         return {
-            "domain": url,
+            "domain": domain,  # Asegúrate de que la variable es 'domain'
             "status_code": "DNS Error",
             "ip": None,
             "obfuscation": has_obfuscation,
@@ -110,6 +127,8 @@ async def scrape_website_async(
             "html_content": "",
             "error": f"DNS resolution failed for {domain}"
         }
+
+    logger.info(f"DNS result ---> {resolved_ip}")
 
     page, context, browser = None, None, None
 
@@ -128,14 +147,11 @@ async def scrape_website_async(
             logger.info(f"Creating new page...")
             page = await context.new_page()
             
-            """
             await page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-            """
             
-            """
             logger.info(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -145,7 +161,7 @@ async def scrape_website_async(
                     )
                 )
             )
-            """
+            
 
             logger.info(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
@@ -153,7 +169,7 @@ async def scrape_website_async(
 
             html_content = await page.content()
 
-            logger.info(f"First html content gathered...")
+            logger.info(f"First html with length {len(html_content)} content gathered...")
 
             await page.wait_for_selector("body", timeout=max_wait_time)
 
@@ -180,10 +196,12 @@ async def scrape_website_async(
                     changed_iterations = 0
                 if unchanged_iterations >= no_change_limit:
                     break
+                logger.info(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
                 logger.info(f"Exiting loop...")
                 await asyncio.sleep(check_interval / 800.0)
 
             html_content = current_content or ""
+            logger.info(f"Second html with length {len(html_content)} content gathered...")
 
             try:
                 status_code = await page.evaluate("() => document.readyState")
