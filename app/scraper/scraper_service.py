@@ -125,7 +125,7 @@ async def scrape_website_async(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-                        
+            
             logger.info(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -298,6 +298,7 @@ async def handle_request(route: Route, request: Request, loaded_resources):
     except asyncio.CancelledError:
         # Log and simply exit; do not attempt any route fulfillment or continuation
         logger.debug(f"Request was cancelled: {request.url}")
+        return
 
     except TargetClosedError:
         # Just log the fact that target is already closed
