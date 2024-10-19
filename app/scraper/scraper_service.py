@@ -1,11 +1,9 @@
 import re
 import os
 import logging
-import socket
 import asyncio
-import aiodns
-import time
 import warnings
+import dns.resolver
 from async_timeout import timeout
 from urllib.parse import urlparse
 from playwright.async_api import Route, Request
@@ -52,18 +50,19 @@ IPHONE_FIREFOX_AGENT = (
 loaded_resources = set()
 import async_timeout
 
-async def dns_resolve_async(domain, timeout_duration=3):
-    """
-    Asynchronously resolves a domain name to check if it is reachable.
-    """
-    resolver = aiodns.DNSResolver()
+import socket
 
-    async with async_timeout.timeout(timeout_duration):
-        result = await resolver.gethostbyname(domain, socket.AF_INET)
-        if result and result.addresses:
-            return result.addresses[0]
-        return None  # Retornar None si no se encuentran direcciones IP
-    
+def dns_resolve(domain, timeout_duration=1):
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = timeout_duration
+    try:
+        result = resolver.resolve(domain, 'A')
+        ips = [ip.address for ip in result]
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout):
+        ips = None
+    return ips
+
+
 def is_redirected_to_different_domain(initial_url, final_url):
     """
     Compare domains to check if redirected to a different domain.
@@ -100,25 +99,15 @@ async def scrape_website_async(
     script_contents = []
     script_capture_tasks = []
     html_content = ''
-    
-    logger.info(f"Checking DNS resolution for {domain}...")
+
     resolved_ip = None
-
-    try:
-        # Intentar resolver el DNS y permitir que falle
-        resolved_ip = await dns_resolve_async(domain)
-    except asyncio.TimeoutError:
-        logger.error(f"DNS resolution for {domain} timed out.")
-    except aiodns.error.DNSError as e:
-        logger.error(f"DNS resolution failed for {domain} due to DNS error: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error during DNS check for {domain}: {e}")
-
-
-    if resolved_ip is None:
-        logger.error(f"DNS resolution failed for {domain}. No IP was resolved.")
+    resolved_ip = dns_resolve(domain)
+    logger.info(f"DNS result ---> {resolved_ip}")
+    if not resolved_ip:
+        # Handle DNS resolution errors
+        logger.error(f"Error during DNS resolution for {domain}")
         return {
-            "domain": domain,  # Asegúrate de que la variable es 'domain'
+            "domain": domain,
             "status_code": "DNS Error",
             "ip": None,
             "obfuscation": has_obfuscation,
@@ -151,7 +140,7 @@ async def scrape_website_async(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-            
+                        
             logger.info(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -162,7 +151,6 @@ async def scrape_website_async(
                 )
             )
             
-
             logger.info(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
             logger.info(f"Page goto has finished...")

@@ -10,7 +10,6 @@ import time
 from collections import deque
 import warnings
 import logging
-import concurrent.futures
 
 # Load environment variables from .env file
 load_dotenv()
@@ -82,74 +81,69 @@ async def process_scrape_task(domain):
 async def consume_and_process():
     logger.info(f"Initializing Pulsar client {PULSAR_URL}, subscription {DOMAIN_TOPIC} and producer {RESULT_TOPIC}...")
     
-    # Initialize the Pulsar client
+    # Inicializamos el cliente de Pulsar
     client = pulsar.Client(PULSAR_URL)
-
-    # Subscribe to the topic
+    
+    # Suscribirse al tópico
     consumer = client.subscribe(
         f"persistent://public/default/{DOMAIN_TOPIC}",
         subscription_name='scrapers-subscription',
-        consumer_type=pulsar.ConsumerType.Shared  # Use the ConsumerType enum instead of a string
+        consumer_type=pulsar.ConsumerType.Shared  # Uso del enum para el tipo de consumidor
     )
-    
-    # Create a producer for results
+        
+    # Crear el productor para los resultados
     producer = client.create_producer(f"persistent://public/default/{RESULT_TOPIC}")
 
-    # Proceed with the semaphore initialization if everything is successful
+    # Inicializamos el semáforo con el número máximo de tareas concurrentes
     logger.info(f"Initializing Semaphore with {concurrent_tasks} concurrent tasks...")
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
     async def process_domain(domain):
-        async with semaphore:
-            try:
-                logger.info(f"Initializing scraping process for {domain}...")
-                start_time = time.time()
-                result = await process_scrape_task(domain)
-                total_time = (time.time() - start_time) * 1000
-                logger.info(f"Time consumed for scraping + analysis: {total_time} ms")
-                if result:
-                    logger.info(f"Sending scraped result to Pulsar...")
-                    result['processor'] = client_name
-                    producer.send(str(result).encode('utf-8'))
-                    # Record the timestamp when the domain is processed
-                    processed_urls_timestamps.append(time.time())
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                logger.error(f"Error processing domain {domain}: {e}")
+        try:
+            logger.info(f"Initializing scraping process for {domain}...")
+            result = await process_scrape_task(domain)
+            if result:
+                logger.info(f"Sending scraped result to Pulsar...")
+                result['processor'] = client_name
+                producer.send(str(result).encode('utf-8'))
+                # Registrar la marca de tiempo cuando el dominio ha sido procesado
+                processed_urls_timestamps.append(time.time())
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error processing domain {domain}: {e}")
 
-    """
     async def track_scraping_count():
         while True:
-            # Calculate the number of URLs processed in the last 60 seconds
+            # Calcular el número de URLs procesadas en los últimos 60 segundos
             current_time = time.time()
             while processed_urls_timestamps and (current_time - processed_urls_timestamps[0]) > 60:
                 processed_urls_timestamps.popleft()
             logger.info(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
             await asyncio.sleep(60)
-    """
 
     try:
-        # Start tracking the scraping count in a separate task
-        #asyncio.create_task(track_scraping_count())
+        # Iniciar la tarea para rastrear el número de scraping en segundo plano
+        asyncio.create_task(track_scraping_count())
 
         while True:
             logging.debug("Awaiting for Pulsar messages...")
-            msg = consumer.receive()
-            domain = msg.data().decode('utf-8')
 
-            # Start processing the domain while respecting the semaphore limit
-            logging.debug(f"URL received and sent for processing: {domain}")
-            asyncio.create_task(process_domain(domain))
-            consumer.acknowledge(msg)
-
-            # Small delay to yield control to other tasks
-            await asyncio.sleep(0.5)
+            # Limitar la recepción de mensajes con el semáforo
+            async with semaphore:
+                msg = consumer.receive()
+                domain = msg.data().decode('utf-8')
+                logging.info(f"Received {domain} from broker.")
+                
+                # Procesar el dominio
+                logging.debug(f"URL received and sent for processing: {domain}")
+                await asyncio.create_task(process_domain(domain))
+                consumer.acknowledge(msg)
 
     except Exception as e:
         logger.error(f"An error occurred during message consumption: {e}")
     finally:
-        # Cancel all pending tasks gracefully
+        # Cancelar todas las tareas pendientes de manera segura
         all_tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
         for task in all_tasks:
             task.cancel()
