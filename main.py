@@ -15,15 +15,6 @@ import logging
 load_dotenv()
 
 # Configure logging
-LOG_FILE_PATH = "./logs/service.log"
-logging.basicConfig(
-    level=logging.ERROR,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE_PATH),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger("ScraperService")
 
 # Load Pulsar configurations from .env

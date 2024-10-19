@@ -17,23 +17,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Set up logging configuration
-LOG_FILE_PATH = "./logs/service.log"
-LOG_TO_FILE = False  # Deactivate writing to file by default
-
-# Ensure log directory exists
-log_dir = os.path.dirname(LOG_FILE_PATH)
-if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
-
 # Configure logging
 handlers = [logging.StreamHandler()]  # Default to only stream handler
 
-if LOG_TO_FILE:  # Only add file handler if logging to file is enabled
-    handlers.append(logging.FileHandler(LOG_FILE_PATH))
-
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.CRITICAL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=handlers
 )
@@ -48,9 +36,6 @@ IPHONE_FIREFOX_AGENT = (
 
 # Set to track already requested URLs
 loaded_resources = set()
-import async_timeout
-
-import socket
 
 def dns_resolve(domain, timeout_duration=1):
     resolver = dns.resolver.Resolver()
