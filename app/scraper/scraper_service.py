@@ -33,7 +33,7 @@ if LOG_TO_FILE:  # Only add file handler if logging to file is enabled
     handlers.append(logging.FileHandler(LOG_FILE_PATH))
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=handlers
 )
@@ -167,11 +167,13 @@ async def scrape_website_async(
 
             final_url = page.url
             redirect_domain = is_redirected_to_different_domain(url, final_url)
-            unchanged_iterations, changed_iterations = 0, 0
+            unchanged_iterations, changed_iterations, total_iterations = 0, 0, 0
             previous_content = None
+            current_content = html_content
 
-            while True:
+            while total_iterations < 1.5 * (unchanged_iterations + changed_iterations):
                 logger.info(f"Entering loop...")
+                total_iterations += 1
                 current_content = await page.content()
                 if current_content != previous_content:
                     previous_content = current_content
@@ -197,7 +199,7 @@ async def scrape_website_async(
             except asyncio.TimeoutError:
                 status_code = "loading"
             except Exception as e:
-                logger.error(f"Error during page evaluation: {e}")
+                logger.info(f"Error during page evaluation: {e}")
                 status_code = "error"
 
             await asyncio.gather(*script_capture_tasks)
@@ -210,7 +212,7 @@ async def scrape_website_async(
                     break
 
     except asyncio.CancelledError:
-        logger.error(f"Task was cancelled while processing domain {domain}. Cleaning up.")
+        logger.info(f"Task was cancelled while processing domain {domain}. Cleaning up.")
         return {
             "domain": url,
             "status_code": "Cancelled",
@@ -223,7 +225,7 @@ async def scrape_website_async(
         }
 
     except PlaywrightTimeoutError as timeout_error:
-        logger.error(f"Timeout occurred while loading the page {url}: {timeout_error}")
+        logger.info(f"Timeout occurred while loading the page {url}: {timeout_error}")
         return {
             "domain": url,
             "status_code": "Timeout",
@@ -236,7 +238,7 @@ async def scrape_website_async(
         }
 
     except Exception as e:
-        logger.error(f"Error while scraping {url}: {e}")
+        logger.info(f"Error while scraping {url}: {e}")
         return {
             "domain": url,
             "status_code": "Failed",
@@ -284,7 +286,7 @@ async def capture_scripts_async(response, script_urls, script_contents):
         elif response.status != 200:
             logger.info(f"Non-200 status for script: {response.url} with status: {response.status}")
     except Exception as e:
-        logger.error(f"Error capturing scripts from {response.url}: {e}")
+        logger.info(f"Error capturing scripts from {response.url}: {e}")
 
 async def handle_request(route: Route, request: Request, loaded_resources):
     try:
@@ -298,7 +300,7 @@ async def handle_request(route: Route, request: Request, loaded_resources):
             except TargetClosedError:
                 logger.info(f"Failed to abort request for {url} because the target was already closed.")
             except Exception as e:
-                logger.error(f"Unexpected error while aborting request for {url}: {e}")
+                logger.info(f"Unexpected error while aborting request for {url}: {e}")
         else:
             loaded_resources.add(url)
             try:
@@ -306,7 +308,7 @@ async def handle_request(route: Route, request: Request, loaded_resources):
             except TargetClosedError:
                 logger.info(f"Failed to continue request for {url} because the target was already closed.")
             except Exception as e:
-                logger.error(f"Unexpected error while continuing request for {url}: {e}")
+                logger.info(f"Unexpected error while continuing request for {url}: {e}")
 
     except asyncio.CancelledError:
         # Log and simply exit; do not attempt any route fulfillment or continuation
@@ -314,11 +316,11 @@ async def handle_request(route: Route, request: Request, loaded_resources):
 
     except TargetClosedError:
         # Just log the fact that target is already closed
-        logger.error(f"Target closed for request: {request.url}")
+        logger.info(f"Target closed for request: {request.url}")
 
     except Exception as e:
         # If any general error occurs, log it and do nothing else
-        logger.error(f"Error in handling request: {request.url} - {e}")
+        logger.info(f"Error in handling request: {request.url} - {e}")
 
 
 

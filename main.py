@@ -17,7 +17,7 @@ load_dotenv()
 # Configure logging
 LOG_FILE_PATH = "./logs/service.log"
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE_PATH),
@@ -59,25 +59,8 @@ logging.getLogger('asyncio').setLevel(logging.DEBUG)
 
 async def process_scrape_task(domain):
     try:
-        
-        scrape_start = time.time()
-        # Continuar la ejecución
         scraped_data = await scrape_website_async(domain)
-        scrape_time = (time.time() - scrape_start) * 1000
-        logger.info(f"Scraping finished in {scrape_time:.2f} ms")
-
-        html_content = scraped_data.get("html_content")
-        logger.info(f"Final html with length {len(html_content)} content gathered...")
-
-        if not html_content:
-            return None
-
-        analysis_start = time.time()
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
-        analysis_time = (time.time() - analysis_start) * 1000
-        total_time = (time.time() - scrape_start) * 1000
-        logger.info(f"Data extraction finished in {analysis_time:.2f} ms")
-        logger.info(f"Total time: {total_time:.2f} ms")
         return analyzed_data
     except Exception as e:
         logger.error(f"Error processing scrape task for domain {domain}: {e}")
@@ -86,76 +69,86 @@ async def process_scrape_task(domain):
 async def consume_and_process():
     logger.info(f"Initializing Pulsar client {PULSAR_URL}, subscription {DOMAIN_TOPIC} and producer {RESULT_TOPIC}...")
     
-    # Inicializamos el cliente de Pulsar
+    # Initialize Pulsar client
     client = pulsar.Client(PULSAR_URL)
     
-    # Suscribirse al tópico
+    # Subscribe to the topic
     consumer = client.subscribe(
         f"persistent://public/default/{DOMAIN_TOPIC}",
         subscription_name='scrapers-subscription',
-        consumer_type=pulsar.ConsumerType.Shared  # Uso del enum para el tipo de consumidor
+        consumer_type=pulsar.ConsumerType.Shared
     )
         
-    # Crear el productor para los resultados
+    # Create a producer for results
     producer = client.create_producer(f"persistent://public/default/{RESULT_TOPIC}")
 
-    # Inicializamos el semáforo con el número máximo de tareas concurrentes
+    # Initialize semaphore with max concurrent tasks
     logger.info(f"Initializing Semaphore with {concurrent_tasks} concurrent tasks...")
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
-    async def process_domain(domain):
+    # List to track running tasks
+    running_tasks = []
+
+    async def process_domain(domain, msg):
         try:
             logger.info(f"Initializing scraping process for {domain}...")
             result = await process_scrape_task(domain)
+            logger.info(f"{result}")
             if result:
                 logger.info(f"Sending scraped result to Pulsar...")
                 result['processor'] = client_name
                 producer.send(str(result).encode('utf-8'))
-                # Regitser the timestamp once the domain has been processed
+                # Register timestamp once the domain has been processed
                 processed_urls_timestamps.append(time.time())
+            consumer.acknowledge(msg)  # Acknowledge message only after successful processing
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Error processing domain {domain}: {e}")
+            consumer.negative_acknowledge(msg)  # Negative acknowledgement on failure
 
     async def track_scraping_count():
         while True:
-            # Calcular el número de URLs procesadas en los últimos 60 segundos
             current_time = time.time()
             while processed_urls_timestamps and (current_time - processed_urls_timestamps[0]) > 60:
                 processed_urls_timestamps.popleft()
-            logger.info(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
+            logger.critical(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
             await asyncio.sleep(60)
 
     try:
-        # Iniciar la tarea para rastrear el número de scraping en segundo plano
+        # Start the task to track the scraping count in the background
         asyncio.create_task(track_scraping_count())
 
         while True:
-            logging.debug("Awaiting for Pulsar messages...")
+            logger.debug("Awaiting Pulsar messages...")
 
-            # Limitar la recepción de mensajes con el semáforo
+            # Receive message with semaphore limit on task creation
             async with semaphore:
                 msg = consumer.receive()
                 domain = msg.data().decode('utf-8')
-                logging.info(f"Received {domain} from broker.")
-                
-                # Procesar el dominio
-                logging.debug(f"URL received and sent for processing: {domain}")
-                await asyncio.create_task(process_domain(domain))
-                consumer.acknowledge(msg)
+                logger.info(f"Received {domain} from broker.")
+
+                # Create and track the task without awaiting immediately
+                task = asyncio.create_task(process_domain(domain, msg))
+                running_tasks.append(task)
+
+                # Remove completed tasks from tracking list
+                running_tasks = [t for t in running_tasks if not t.done()]
+
+            # Limit the loop to wait for tasks completion when semaphore is full
+            if len(running_tasks) >= concurrent_tasks:
+                await asyncio.wait(running_tasks, return_when=asyncio.FIRST_COMPLETED)
 
     except Exception as e:
         logger.error(f"An error occurred during message consumption: {e}")
     finally:
-        # Cancelar todas las tareas pendientes de manera segura
+        # Cancel all pending tasks before exiting
         all_tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
         for task in all_tasks:
             task.cancel()
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
         client.close()
-
 
 if __name__ == "__main__":
     try:
