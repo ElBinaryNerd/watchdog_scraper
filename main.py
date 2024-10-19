@@ -64,7 +64,7 @@ async def process_scrape_task(domain):
         # Continuar la ejecución
         scraped_data = await scrape_website_async(domain)
         scrape_time = (time.time() - scrape_start) * 1000
-        logger.info(f"DNS check finished in {scrape_time:.2f} ms")
+        logger.info(f"Scraping finished in {scrape_time:.2f} ms")
 
         html_content = scraped_data.get("html_content")
         logger.info(f"Final html with length {len(html_content)} content gathered...")
@@ -72,7 +72,12 @@ async def process_scrape_task(domain):
         if not html_content:
             return None
 
+        analysis_start = time.time()
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
+        analysis_time = (time.time() - analysis_start) * 1000
+        total_time = (time.time() - scrape_start) * 1000
+        logger.info(f"Data extraction finished in {analysis_time:.2f} ms")
+        logger.info(f"Total time: {total_time:.2f} ms")
         return analyzed_data
     except Exception as e:
         logger.error(f"Error processing scrape task for domain {domain}: {e}")
@@ -102,7 +107,6 @@ async def consume_and_process():
         try:
             logger.info(f"Initializing scraping process for {domain}...")
             result = await process_scrape_task(domain)
-            logger.info(f"{result}")
             if result:
                 logger.info(f"Sending scraped result to Pulsar...")
                 result['processor'] = client_name

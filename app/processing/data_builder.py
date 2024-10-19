@@ -19,8 +19,6 @@ async def from_scraper_to_parsed_data(scraped_data):
     simhash = None
     dom_tag_sequence = None
 
-    html_content = ""
-
     if not html_content:
         # We don't need to analyze the html because it is empty.
         logger.info("There is no html to analyze")    
