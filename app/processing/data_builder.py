@@ -12,46 +12,49 @@ async def from_scraper_to_parsed_data(scraped_data):
     loop = asyncio.get_event_loop()
 
     html_content = scraped_data.pop("html_content", None)
-    sublimator = HtmlSublimator(html_content)
 
-    # Run the methods in parallel using a thread executor to avoid blocking
-    logger.debug("Starting membership detection...")
-    has_membership_future = loop.run_in_executor(None, sublimator.detect_membership)
+    # Assign a default value to the extracted data variables
+    has_membership = None
+    readable_text = None
+    simhash = None
+    dom_tag_sequence = None
 
-    logger.debug("Starting readable text extraction...")
-    readable_text_future = loop.run_in_executor(None, sublimator.extract_readable_text)
+    html_content = ""
 
-    logger.debug("Starting simhash extraction...")
-    simhash_future = loop.run_in_executor(None, sublimator.extract_simhash)
+    if not html_content:
+        # We don't need to analyze the html because it is empty.
+        logger.info("There is no html to analyze")    
+    else:
+        # Process the HTML and extract relevant data so that we can drop it.
+        sublimator = HtmlSublimator(html_content)
 
-    logger.debug("Starting tag sequence extraction...")
-    dom_tag_sequence_future = loop.run_in_executor(None, sublimator.get_tag_sequence)
+        # Run the methods in parallel using a thread executor to avoid blocking
+        has_membership_future = loop.run_in_executor(None, sublimator.detect_membership)
+        readable_text_future = loop.run_in_executor(None, sublimator.extract_readable_text)
+        simhash_future = loop.run_in_executor(None, sublimator.extract_simhash)
+        dom_tag_sequence_future = loop.run_in_executor(None, sublimator.get_tag_sequence)
 
-    # Gather the results, handling errors in individual tasks
-    results = await asyncio.gather(
-        has_membership_future,
-        readable_text_future,
-        simhash_future,
-        dom_tag_sequence_future,
-        return_exceptions=True
-    )
+        # Gather the results, handling errors in individual tasks
+        results = await asyncio.gather(
+            has_membership_future,
+            readable_text_future,
+            simhash_future,
+            dom_tag_sequence_future,
+            return_exceptions=True
+        )
 
-    # Unpack results with error handling
-    has_membership, readable_text, simhash, dom_tag_sequence = results
+        # Unpack results with error handling
+        has_membership, readable_text, simhash, dom_tag_sequence = results
 
-    # Check for exceptions and log them
-    if isinstance(has_membership, Exception):
-        logger.error(f"Error in detecting membership: {has_membership}")
-        has_membership = None
-    if isinstance(readable_text, Exception):
-        logger.error(f"Error in extracting readable text: {readable_text}")
-        readable_text = None
-    if isinstance(simhash, Exception):
-        logger.error(f"Error in extracting simhash: {simhash}")
-        simhash = None
-    if isinstance(dom_tag_sequence, Exception):
-        logger.error(f"Error in extracting tag sequence: {dom_tag_sequence}")
-        dom_tag_sequence = None
+        # Check for exceptions and log them
+        if isinstance(has_membership, Exception):
+            logger.error(f"Error in detecting membership: {has_membership}")
+        if isinstance(readable_text, Exception):
+            logger.error(f"Error in extracting readable text: {readable_text}")
+        if isinstance(simhash, Exception):
+            logger.error(f"Error in extracting simhash: {simhash}")
+        if isinstance(dom_tag_sequence, Exception):
+            logger.error(f"Error in extracting tag sequence: {dom_tag_sequence}")
 
     # Remove redundant data from scraped_data
     domain = scraped_data.pop("domain", None)

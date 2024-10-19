@@ -60,11 +60,6 @@ logging.getLogger('asyncio').setLevel(logging.DEBUG)
 async def process_scrape_task(domain):
     try:
         scraped_data = await scrape_website_async(domain)
-        html_content = scraped_data.get("html_content")
-
-        if not html_content:
-            return None
-
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
     except Exception as e:
@@ -95,11 +90,12 @@ async def consume_and_process():
         try:
             logger.info(f"Initializing scraping process for {domain}...")
             result = await process_scrape_task(domain)
+            logger.info(f"{result}")
             if result:
                 logger.info(f"Sending scraped result to Pulsar...")
                 result['processor'] = client_name
                 producer.send(str(result).encode('utf-8'))
-                # Registrar la marca de tiempo cuando el dominio ha sido procesado
+                # Regitser the timestamp once the domain has been processed
                 processed_urls_timestamps.append(time.time())
         except asyncio.CancelledError:
             pass

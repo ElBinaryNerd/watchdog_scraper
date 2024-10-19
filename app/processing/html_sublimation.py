@@ -48,8 +48,8 @@ class HtmlSublimator:
         Extract and return the Simhash value of the HTML content.
         """
         if not self.html_content:
-            logger.error("HTML content is empty. Cannot extract Simhash.")
-            return None
+            logger.debug("HTML content is empty. Returning known Simhash for this case.")
+            return 0
 
         try:
             tokens = self.html_content.split()  # Using basic split() for efficiency
