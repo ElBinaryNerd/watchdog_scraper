@@ -1,9 +1,8 @@
 import re
 import logging
-import socket
 import asyncio
-import aiodns
 import warnings
+import dns.resolver
 from async_timeout import timeout
 from urllib.parse import urlparse
 from playwright.async_api import Route, Request
@@ -38,26 +37,17 @@ IPHONE_FIREFOX_AGENT = (
 # Set to track already requested URLs
 loaded_resources = set()
 
+import socket
 
-async def dns_resolve_async(domain, timeout_duration=5):
-    """
-    Asynchronously resolves a domain name to check if it is reachable.
-    """
-    resolver = aiodns.DNSResolver()
-
+def dns_resolve(domain, timeout_duration=1):
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = timeout_duration
     try:
-        async with timeout(timeout_duration):
-            result = await resolver.gethostbyname(domain, socket.AF_INET)
-            if result and result.addresses:
-                return result.addresses[0]
-            return None
-    except (aiodns.error.DNSError, asyncio.TimeoutError) as e:
-        logger.error(f"DNS resolution failed for {domain}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error during DNS resolution for {domain}: {e}")
-        return None
-    return None
+        result = resolver.resolve(domain, 'A')
+        ips = [ip.address for ip in result]
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout):
+        ips = None
+    return ips
 
 
 def is_redirected_to_different_domain(initial_url, final_url):
@@ -97,12 +87,14 @@ async def scrape_website_async(
     script_capture_tasks = []
     html_content = ''
 
-    logger.info(f"Cheching DNS resolution for {domain}...")
-    resolved_ip = await dns_resolve_async(domain)
+    resolved_ip = None
+    resolved_ip = dns_resolve(domain)
+    logger.info(f"DNS result ---> {resolved_ip}")
     if not resolved_ip:
-        logger.debug(f"Domain {domain} does not exist or DNS resolution failed.")
+        # Handle DNS resolution errors
+        logger.error(f"Error during DNS resolution for {domain}")
         return {
-            "domain": url,
+            "domain": domain,
             "status_code": "DNS Error",
             "ip": None,
             "obfuscation": has_obfuscation,
