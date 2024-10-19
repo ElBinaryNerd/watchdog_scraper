@@ -1,4 +1,5 @@
 import re
+import os
 import logging
 import asyncio
 import warnings
@@ -16,16 +17,27 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Set up logging configuration to match the main application's log settings
+# Set up logging configuration
 LOG_FILE_PATH = "./logs/service.log"
+LOG_TO_FILE = False  # Deactivate writing to file by default
+
+# Ensure log directory exists
+log_dir = os.path.dirname(LOG_FILE_PATH)
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+# Configure logging
+handlers = [logging.StreamHandler()]  # Default to only stream handler
+
+if LOG_TO_FILE:  # Only add file handler if logging to file is enabled
+    handlers.append(logging.FileHandler(LOG_FILE_PATH))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE_PATH),
-        logging.StreamHandler()
-    ]
+    handlers=handlers
 )
+
 logger = logging.getLogger("ScraperService")
 
 # Set Coinbase Wallet Browser User-Agent (Example based on known data)
@@ -36,6 +48,7 @@ IPHONE_FIREFOX_AGENT = (
 
 # Set to track already requested URLs
 loaded_resources = set()
+import async_timeout
 
 import socket
 
@@ -104,6 +117,8 @@ async def scrape_website_async(
             "error": f"DNS resolution failed for {domain}"
         }
 
+    logger.info(f"DNS result ---> {resolved_ip}")
+
     page, context, browser = None, None, None
 
     try:
@@ -142,7 +157,7 @@ async def scrape_website_async(
 
             html_content = await page.content()
 
-            logger.info(f"First html content gathered...")
+            logger.info(f"First html with length {len(html_content)} content gathered...")
 
             await page.wait_for_selector("body", timeout=max_wait_time)
 
@@ -169,10 +184,12 @@ async def scrape_website_async(
                     changed_iterations = 0
                 if unchanged_iterations >= no_change_limit:
                     break
+                logger.info(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
                 logger.info(f"Exiting loop...")
                 await asyncio.sleep(check_interval / 800.0)
 
             html_content = current_content or ""
+            logger.info(f"Second html with length {len(html_content)} content gathered...")
 
             try:
                 status_code = await page.evaluate("() => document.readyState")

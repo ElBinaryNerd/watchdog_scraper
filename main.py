@@ -59,7 +59,19 @@ logging.getLogger('asyncio').setLevel(logging.DEBUG)
 
 async def process_scrape_task(domain):
     try:
+        
+        scrape_start = time.time()
+        # Continuar la ejecución
         scraped_data = await scrape_website_async(domain)
+        scrape_time = (time.time() - scrape_start) * 1000
+        logger.info(f"DNS check finished in {scrape_time:.2f} ms")
+
+        html_content = scraped_data.get("html_content")
+        logger.info(f"Final html with length {len(html_content)} content gathered...")
+
+        if not html_content:
+            return None
+
         analyzed_data = await from_scraper_to_parsed_data(scraped_data)
         return analyzed_data
     except Exception as e:
