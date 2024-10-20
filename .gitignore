@@ -1,8 +1,12 @@
 !app/
 !app/**/*
 
-# Ignore plugins inside the plugins directory
+# Ignore all plugins inside the plugins directory
 app/plugins/*/
+
+# Exclude plugin_sample from being ignored
+!app/plugins/plugin_sample/
+!app/plugins/plugin_sample/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

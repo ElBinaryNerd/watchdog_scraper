@@ -87,10 +87,10 @@ async def scrape_website_async(
 
     resolved_ip = None
     resolved_ip = dns_resolve(domain)
-    logger.info(f"DNS result ---> {resolved_ip}")
+    logger.debug(f"DNS result ---> {resolved_ip}")
     if not resolved_ip:
         # Handle DNS resolution errors
-        logger.error(f"Error during DNS resolution for {domain}")
+        logger.debug(f"Error during DNS resolution for {domain}")
         return {
             "domain": domain,
             "status_code": "DNS Error",
@@ -102,15 +102,15 @@ async def scrape_website_async(
             "error": f"DNS resolution failed for {domain}"
         }
 
-    logger.info(f"DNS result ---> {resolved_ip}")
+    logger.debug(f"DNS result ---> {resolved_ip}")
 
     page, context, browser = None, None, None
 
     try:
         async with async_playwright() as playwright:
-            logger.info(f"Starting scraping process of {url}...")
+            logger.debug(f"Starting scraping process of {url}...")
             browser = await playwright.chromium.launch(headless=True, args=["--ignore-certificate-errors"])
-            logger.info(f"Chromium has been launched...")
+            logger.debug(f"Chromium has been launched...")
             context = await browser.new_context(
                 user_agent=IPHONE_FIREFOX_AGENT,
                 viewport={"width": 390, "height": 844},
@@ -118,15 +118,15 @@ async def scrape_website_async(
                 locale="en-GB",
                 timezone_id="America/New_York"
             )
-            logger.info(f"Creating new page...")
+            logger.debug(f"Creating new page...")
             page = await context.new_page()
-            
+            """
             await page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-            
-            logger.info(f"Adding response task to capture..")
+            """
+            logger.debug(f"Adding response task to capture..")
             page.on(
                 "response",
                 lambda response: script_capture_tasks.append(
@@ -136,17 +136,17 @@ async def scrape_website_async(
                 )
             )
             
-            logger.info(f"Finished setup, opening {url}...")
+            logger.debug(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
-            logger.info(f"Page goto has finished...")
+            logger.debug(f"Page goto has finished...")
 
             html_content = await page.content()
 
-            logger.info(f"First html with length {len(html_content)} content gathered...")
+            logger.debug(f"First html with length {len(html_content)} content gathered...")
 
             await page.wait_for_selector("body", timeout=max_wait_time)
 
-            logger.info(f"Body has been awaited...")
+            logger.debug(f"Body has been awaited...")
 
             await asyncio.sleep(1)
 
@@ -157,7 +157,7 @@ async def scrape_website_async(
             current_content = html_content
 
             while total_iterations < 1.5 * (unchanged_iterations + changed_iterations):
-                logger.info(f"Entering loop...")
+                logger.debug(f"Entering loop...")
                 total_iterations += 1
                 current_content = await page.content()
                 if current_content != previous_content:
@@ -171,12 +171,12 @@ async def scrape_website_async(
                     changed_iterations = 0
                 if unchanged_iterations >= no_change_limit:
                     break
-                logger.info(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
-                logger.info(f"Exiting loop...")
+                logger.debug(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
+                logger.debug(f"Exiting loop...")
                 await asyncio.sleep(check_interval / 800.0)
 
             html_content = current_content or ""
-            logger.info(f"Second html with length {len(html_content)} content gathered...")
+            logger.debug(f"Second html with length {len(html_content)} content gathered...")
 
             try:
                 status_code = await page.evaluate("() => document.readyState")
@@ -184,7 +184,7 @@ async def scrape_website_async(
             except asyncio.TimeoutError:
                 status_code = "loading"
             except Exception as e:
-                logger.info(f"Error during page evaluation: {e}")
+                logger.debug(f"Error during page evaluation: {e}")
                 status_code = "error"
 
             await asyncio.gather(*script_capture_tasks)
@@ -197,7 +197,7 @@ async def scrape_website_async(
                     break
 
     except asyncio.CancelledError:
-        logger.info(f"Task was cancelled while processing domain {domain}. Cleaning up.")
+        logger.debug(f"Task was cancelled while processing domain {domain}. Cleaning up.")
         return {
             "domain": url,
             "status_code": "Cancelled",
@@ -210,7 +210,7 @@ async def scrape_website_async(
         }
 
     except PlaywrightTimeoutError as timeout_error:
-        logger.info(f"Timeout occurred while loading the page {url}: {timeout_error}")
+        logger.debug(f"Timeout occurred while loading the page {url}: {timeout_error}")
         return {
             "domain": url,
             "status_code": "Timeout",
@@ -223,7 +223,7 @@ async def scrape_website_async(
         }
 
     except Exception as e:
-        logger.info(f"Error while scraping {url}: {e}")
+        logger.debug(f"Error while scraping {url}: {e}")
         return {
             "domain": url,
             "status_code": "Failed",
@@ -240,14 +240,14 @@ async def scrape_website_async(
             if context:
                 await context.close()
         except Exception as e:
-            logger.info(f"Error closing context: {e}")
+            logger.debug(f"Error closing context: {e}")
 
         if page:
             await page.close()
         if browser:
             await browser.close()
 
-        logger.info(f"Scraping completed for {url}")
+        logger.debug(f"Scraping completed for {url}")
 
     return {
         "domain": url,
@@ -267,11 +267,11 @@ async def capture_scripts_async(response, script_urls, script_contents):
                 script_urls.append(response.url)
                 script_contents.append(js_code)
             except Exception as e:
-                logger.info(f"Failed to capture script content from {response.url}: {e}")
+                logger.debug(f"Failed to capture script content from {response.url}: {e}")
         elif response.status != 200:
-            logger.info(f"Non-200 status for script: {response.url} with status: {response.status}")
+            logger.debug(f"Non-200 status for script: {response.url} with status: {response.status}")
     except Exception as e:
-        logger.info(f"Error capturing scripts from {response.url}: {e}")
+        logger.debug(f"Error capturing scripts from {response.url}: {e}")
 
 async def handle_request(route: Route, request: Request, loaded_resources):
     try:
@@ -279,21 +279,21 @@ async def handle_request(route: Route, request: Request, loaded_resources):
 
         # If resource was already loaded before, abort it
         if url in loaded_resources:
-            logger.info(f"Aborting repeated request to {url}")
+            logger.debug(f"Aborting repeated request to {url}")
             try:
                 await route.abort()
             except TargetClosedError:
-                logger.info(f"Failed to abort request for {url} because the target was already closed.")
+                logger.debug(f"Failed to abort request for {url} because the target was already closed.")
             except Exception as e:
-                logger.info(f"Unexpected error while aborting request for {url}: {e}")
+                logger.debug(f"Unexpected error while aborting request for {url}: {e}")
         else:
             loaded_resources.add(url)
             try:
                 await route.continue_()
             except TargetClosedError:
-                logger.info(f"Failed to continue request for {url} because the target was already closed.")
+                logger.debug(f"Failed to continue request for {url} because the target was already closed.")
             except Exception as e:
-                logger.info(f"Unexpected error while continuing request for {url}: {e}")
+                logger.debug(f"Unexpected error while continuing request for {url}: {e}")
 
     except asyncio.CancelledError:
         # Log and simply exit; do not attempt any route fulfillment or continuation
@@ -302,11 +302,11 @@ async def handle_request(route: Route, request: Request, loaded_resources):
 
     except TargetClosedError:
         # Just log the fact that target is already closed
-        logger.info(f"Target closed for request: {request.url}")
+        logger.debug(f"Target closed for request: {request.url}")
 
     except Exception as e:
         # If any general error occurs, log it and do nothing else
-        logger.info(f"Error in handling request: {request.url} - {e}")
+        logger.debug(f"Error in handling request: {request.url} - {e}")
 
 
 

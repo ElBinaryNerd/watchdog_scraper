@@ -1,145 +1,96 @@
-import asyncio
 import os
-import pulsar
-from dotenv import load_dotenv
+import asyncio
+import logging
 from app.scraper.scraper_service import scrape_website_async
 from app.processing.data_builder import from_scraper_to_parsed_data
-import coolname
-import sys
-import time
-from collections import deque
-import warnings
-import logging
+from app.pulsar_manager import PulsarManager
+from app.task_processing_manager import TaskProcessingManager
+from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
+
+# Load Pulsar configurations from .env
+PULSAR_IP = os.getenv('PULSAR_IP', 'localhost')
+PULSAR_PORT = os.getenv('PULSAR_PORT', '6650')
+CONSUMER_TOPIC = os.getenv('CONSUMER_TOPIC', 'domains-to-scrape')
+PRODUCER_TOPIC = os.getenv('PRODUCER_TOPIC', 'scraped-results')
+PULSAR_URL = f"pulsar://{PULSAR_IP}:{PULSAR_PORT}"
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'ERROR').upper()
+
+# Convert the string level to the corresponding logging level
+numeric_level = logging._nameToLevel.get(LOG_LEVEL, logging.ERROR)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.ERROR,
+    level=numeric_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler()
     ]
 )
+
 logger = logging.getLogger("ScraperService")
 
-# Load Pulsar configurations from .env
-PULSAR_IP = os.getenv('PULSAR_IP', 'localhost')
-PULSAR_PORT = os.getenv('PULSAR_PORT', '6650')
-DOMAIN_TOPIC = os.getenv('DOMAIN_TOPIC', 'domains-to-scrape')
-RESULT_TOPIC = os.getenv('RESULT_TOPIC', 'scraped-results')
-
-# Pulsar client setup
-PULSAR_URL = f'pulsar://{PULSAR_IP}:{PULSAR_PORT}'
-
-# Load the number of concurrent tasks from .env
-CONCURRENT_TASKS = int(os.getenv('CONCURRENT_TASKS', '10'))
-
-# Generate or load client name
-CLIENT_NAME_FILE = "./client_name.txt"
-if os.path.exists(CLIENT_NAME_FILE):
-    with open(CLIENT_NAME_FILE, 'r') as file:
-        client_name = file.read().strip()
-else:
-    client_name = "-".join(coolname.generate())
-    with open(CLIENT_NAME_FILE, 'w') as file:
-        file.write(client_name)
-
-# Deque to store timestamps of processed URLs
-processed_urls_timestamps = deque()
-
-# Suppress asyncio warnings about pending tasks being destroyed
-warnings.filterwarnings("ignore", category=RuntimeWarning, message="coroutine .* was never awaited")
-
-# Set asyncio logging level to suppress warnings about destroyed tasks
-logging.getLogger('asyncio').setLevel(logging.DEBUG)
-
-# Inicializamos el semáforo con el número máximo de tareas concurrentes
-logger.critical(f"Initializing Semaphore with {CONCURRENT_TASKS} concurrent tasks...")
-        
-async def track_scraping_count():
-    while True:
-        # Calcular el número de URLs procesadas en los últimos 60 segundos
-        current_time = time.time()
-        while processed_urls_timestamps and (current_time - processed_urls_timestamps[0]) > 60:
-            processed_urls_timestamps.popleft()
-        logger.critical(f"URLs scraped in the last 60 seconds: {len(processed_urls_timestamps)}")
-        await asyncio.sleep(60)
-        
-async def worker(consumer, producer, semaphore):
-    while True:
-        logging.debug("Awaiting for Pulsar messages...")
-
-        # Receive the message first without blocking
-        msg = consumer.receive()
-        domain = msg.data().decode('utf-8')
-        logging.info(f"Received {domain} from broker.")
-        
-        async with semaphore:
-            try:
-                # Process the domain
-                logger.info(f"Initializing scraping process for {domain}...")
-                scraped_data = await scrape_website_async(domain)
-                result = await from_scraper_to_parsed_data(scraped_data)
-
-                if result:
-                    logger.info(f"Sending scraped result to Pulsar...")
-                    result['processor'] = client_name
-                    producer.send(str(result).encode('utf-8'))
-                    processed_urls_timestamps.append(time.time())
-
-                # Acknowledge the message after the domain is processed
-                consumer.acknowledge(msg)
-            except Exception as e:
-                logger.error(f"Error processing domain {domain}: {e}")
-
-
-async def consume_and_process():
-    logger.info(f"Initializing Pulsar client {PULSAR_URL}, subscription {DOMAIN_TOPIC} and producer {RESULT_TOPIC}...")
+# Example task processor action
+async def task_processor_action(task):
+    """An example task processor action that processes tasks."""
+    logger.debug(f"Processing {task}...")
+    scraped_data = await scrape_website_async(task)
+    result = await from_scraper_to_parsed_data(scraped_data)
     
-    client = pulsar.Client(PULSAR_URL)
-    consumer = client.subscribe(
-        f"persistent://public/default/{DOMAIN_TOPIC}",
-        subscription_name='scrapers-subscription',
-        consumer_type=pulsar.ConsumerType.Shared
+    # Return the result so it can be used in the acknowledgment function
+    return result
+
+# Acknowledgment function for Pulsar messages
+async def pulsar_acknowledgment_function(pulsar_manager, msg, task, result):
+    """
+    Produces a new message with the processed result and acknowledges Pulsar messages after processing.
+    
+    :param pulsar_manager: The PulsarManager instance for producing the message.
+    :param msg: The Pulsar message object.
+    :param task: The task that was processed.
+    :param result: The result from the task processor that will be sent in the new Pulsar message.
+    """
+    consumer, message = msg  # Extract the consumer and message tuple
+
+    # Produce a new message to the producer topic, including the result
+    await pulsar_manager.produce_message(f"Processed task: {task}, Result: {result}")
+    logger.debug(f"Produced message for task: {task} with result: {result}")
+
+    # Acknowledge the message via the consumer
+    consumer.acknowledge(message)
+    logger.debug(f"Message acknowledged: {message.message_id()}")
+
+async def main():
+    # Instantiate the PulsarManager with the appropriate topics and subscription
+    pulsar_manager = PulsarManager(
+        pulsar_url=PULSAR_URL,
+        producer_topic=PRODUCER_TOPIC,
+        consumer_topic=CONSUMER_TOPIC,
+        subscription_name='scrapers-subscription'
     )
-    producer = client.create_producer(f"persistent://public/default/{RESULT_TOPIC}")
-    
-    semaphore = asyncio.Semaphore(CONCURRENT_TASKS)  # Semaphore to control concurrency
 
-    try:
-        
-        # Track the number of scrapes in the background
-        asyncio.create_task(track_scraping_count())
+    # Use pulsar_task_fetcher from PulsarManager as the task fetcher
+    task_processing_manager = TaskProcessingManager(
+        task_fetcher=pulsar_manager.pulsar_task_fetcher,
+        task_processor_action=task_processor_action,
+        processors_number=30,
+        queue_maxsize=50,
+        semaphore_value=30,
+        # Pass the pulsar_manager along with the other arguments to the acknowledgment function
+        acknowledgment_function=lambda msg, task, result: pulsar_acknowledgment_function(pulsar_manager, msg, task, result),
+        log_interval=60  # Log and reset every 60 seconds
+    )
 
-        # Start the worker tasks
-        tasks = [
-            asyncio.create_task(worker(consumer, producer, semaphore)) 
-            for _ in range(CONCURRENT_TASKS)
-        ]
+    # Start the task processing system
+    await task_processing_manager.start()
 
-        # Wait for all tasks to complete (they won't, but this keeps the program running)
-        await asyncio.gather(*tasks)
+    # Clean up resources after execution
+    pulsar_manager.close()
 
-    except Exception as e:
-        logger.error(f"An error occurred during message consumption: {e}")
-    finally:
-        # Cancel all tasks safely
-        all_tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
-        for task in all_tasks:
-            task.cancel()
-        await asyncio.gather(*all_tasks, return_exceptions=True)
-
-        client.close()
-    
-
+# Run the example
 if __name__ == "__main__":
     try:
-        logger.info("starting...")
-        asyncio.run(consume_and_process())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Shutting down gracefully...")
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        sys.exit(1)
+        logger.info("Program interrupted.")

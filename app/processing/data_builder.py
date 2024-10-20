@@ -1,6 +1,7 @@
 import asyncio
 import msgpack
 import zstandard as zstd
+from app.global_vars import plugin_manager
 from app.processing.html_sublimation import HtmlSublimator
 import logging
 
@@ -18,10 +19,11 @@ async def from_scraper_to_parsed_data(scraped_data):
     readable_text = None
     simhash = None
     dom_tag_sequence = None
+    plugins_results = None
 
     if not html_content:
         # We don't need to analyze the html because it is empty.
-        logger.info("There is no html to analyze")    
+        logger.debug("There is no html to analyze")    
     else:
         # Process the HTML and extract relevant data so that we can drop it.
         sublimator = HtmlSublimator(html_content)
@@ -31,6 +33,9 @@ async def from_scraper_to_parsed_data(scraped_data):
         readable_text_future = loop.run_in_executor(None, sublimator.extract_readable_text)
         simhash_future = loop.run_in_executor(None, sublimator.extract_simhash)
         dom_tag_sequence_future = loop.run_in_executor(None, sublimator.get_tag_sequence)
+        
+        # Use the global plugin_manager for plugin processing
+        plugins_results_future = loop.run_in_executor(None, plugin_manager.process_html, html_content)
 
         # Gather the results, handling errors in individual tasks
         results = await asyncio.gather(
@@ -38,11 +43,12 @@ async def from_scraper_to_parsed_data(scraped_data):
             readable_text_future,
             simhash_future,
             dom_tag_sequence_future,
+            plugins_results_future,
             return_exceptions=True
         )
 
         # Unpack results with error handling
-        has_membership, readable_text, simhash, dom_tag_sequence = results
+        has_membership, readable_text, simhash, dom_tag_sequence, plugins_results = results
 
         # Check for exceptions and log them
         if isinstance(has_membership, Exception):
@@ -53,6 +59,8 @@ async def from_scraper_to_parsed_data(scraped_data):
             logger.error(f"Error in extracting simhash: {simhash}")
         if isinstance(dom_tag_sequence, Exception):
             logger.error(f"Error in extracting tag sequence: {dom_tag_sequence}")
+        if isinstance(plugins_results, Exception):
+            logger.error(f"Error in processing plugins: {plugins_results}")
 
     # Remove redundant data from scraped_data
     domain = scraped_data.pop("domain", None)
@@ -63,7 +71,8 @@ async def from_scraper_to_parsed_data(scraped_data):
         "membership": has_membership,
         "text_orig": readable_text,
         "simhash": simhash,
-        "dom_tag_sequence": dom_tag_sequence
+        "dom_tag_sequence": dom_tag_sequence,
+        "plugins": plugins_results
     })
 
     # Serialize the updated scraped_data using msgpack
