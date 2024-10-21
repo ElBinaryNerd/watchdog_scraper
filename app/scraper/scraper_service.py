@@ -69,8 +69,8 @@ def detect_obfuscation(js_code, threshold=5, density_threshold=0.05):
 
 
 async def scrape_website_async(
-        url, max_wait_time=14000, check_interval=400,
-        no_change_limit=3, change_limit=5):
+        url, max_wait_time=14000, check_interval=300,
+        no_change_limit=3, change_limit=4):
     if not url.startswith("http"):
         url = "https://" + url
 
@@ -116,7 +116,7 @@ async def scrape_website_async(
     try:
         async with async_playwright() as playwright:
             logger.debug(f"Starting scraping process of {url}...")
-            browser = await playwright.chromium.launch(headless=True, args=["--ignore-certificate-errors"])
+            browser = await playwright.chromium.launch(headless=True, args=["--disable-images", "--disable-plugins", "--blink-settings=imagesEnabled=false", "--ignore-certificate-errors"])
             logger.debug(f"Chromium has been launched...")
             context = await browser.new_context(
                 user_agent=IPHONE_FIREFOX_AGENT,
@@ -128,7 +128,7 @@ async def scrape_website_async(
             )
             logger.debug(f"Creating new page...")
             page = await context.new_page()
-            
+
             await page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
@@ -181,7 +181,7 @@ async def scrape_website_async(
                     break
                 logger.debug(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
                 logger.debug(f"Exiting loop...")
-                await asyncio.sleep(check_interval / 800.0)
+                await asyncio.sleep(check_interval / 1600.0)
 
             html_content = current_content or ""
             logger.debug(f"Second html with length {len(html_content)} content gathered...")
@@ -198,12 +198,13 @@ async def scrape_website_async(
             await asyncio.gather(*script_capture_tasks)
 
             js_filepaths = [urlparse(url).path for url in script_urls]
-
+            
+            
             for script in script_contents:
                 if detect_obfuscation(script):
                     has_obfuscation = True
                     break
-
+            
     except asyncio.CancelledError:
         logger.debug(f"Task was cancelled while processing domain {domain}. Cleaning up.")
         return {
@@ -288,37 +289,28 @@ async def capture_scripts_async(response, script_urls, script_contents):
 async def handle_request(route: Route, request: Request, loaded_resources):
     try:
         url = request.url
+        resource_type = request.resource_type  # Get the resource type (e.g., 'image', 'stylesheet')
 
-        # If resource was already loaded before, abort it
-        if url in loaded_resources:
+        # Block resources that are not needed for scraping
+        if resource_type in ["image", "stylesheet", "font", "media"]:
+            logger.debug(f"Aborting resource of type {resource_type} at {url}")
+            await route.abort()  # Abort loading images, CSS, fonts, and media files
+        elif any(domain in url for domain in ["ads", "analytics", "doubleclick", "googletagmanager", "adservice"]):
+            logger.debug(f"Aborting ad-related request: {url}")
+            await route.abort()  # Block known ad/analytics domains
+        elif url in loaded_resources:
             logger.debug(f"Aborting repeated request to {url}")
-            try:
-                await route.abort()
-            except TargetClosedError:
-                logger.debug(f"Failed to abort request for {url} because the target was already closed.")
-            except Exception as e:
-                logger.debug(f"Unexpected error while aborting request for {url}: {e}")
+            await route.abort()
         else:
             loaded_resources.add(url)
-            try:
-                await route.continue_()
-            except TargetClosedError:
-                logger.debug(f"Failed to continue request for {url} because the target was already closed.")
-            except Exception as e:
-                logger.debug(f"Unexpected error while continuing request for {url}: {e}")
-
-    except asyncio.CancelledError:
-        # Log and simply exit; do not attempt any route fulfillment or continuation
-        logger.debug(f"Request was cancelled: {request.url}")
-        return
-
+            await route.continue_()
+    
     except TargetClosedError:
-        # Just log the fact that target is already closed
         logger.debug(f"Target closed for request: {request.url}")
-
+    except asyncio.CancelledError:
+        logger.debug(f"Request was cancelled: {request.url}")
     except Exception as e:
-        # If any general error occurs, log it and do nothing else
-        logger.debug(f"Error in handling request: {request.url} - {e}")
+        logger.debug(f"Unexpected error in handling request for {url}: {e}")
 
 
 

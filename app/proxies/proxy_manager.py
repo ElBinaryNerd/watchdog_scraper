@@ -79,5 +79,5 @@ class ProxyManager:
     def show_proxies(self):
         result = ""
         for proxy in self.proxies:
-            result = (f"----{proxy.get_address()} | requests: {proxy.requests_made} (s/f: {proxy.success_count} | {proxy.failure_count}\n penalty pts: {proxy.penalty_points} | cooldown? {proxy.in_cooldown} | total load time: {proxy.total_load_time:.1f} s.")
+            result = (f"{result}\n----{proxy.get_address()} | requests: {proxy.requests_made} (s/f: {proxy.success_count} | {proxy.failure_count}\n penalty pts: {proxy.penalty_points} | cooldown? {proxy.in_cooldown} | total load time: {proxy.total_load_time:.1f} s.")
         return result
