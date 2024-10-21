@@ -69,7 +69,7 @@ def detect_obfuscation(js_code, threshold=5, density_threshold=0.05):
 
 
 async def scrape_website_async(
-        url, max_wait_time=14000, check_interval=300,
+        url, max_wait_time=12000, check_interval=400,
         no_change_limit=3, change_limit=4):
     if not url.startswith("http"):
         url = "https://" + url
@@ -94,7 +94,6 @@ async def scrape_website_async(
 
     resolved_ip = None
     resolved_ip = dns_resolve(domain)
-    logger.debug(f"DNS result ---> {resolved_ip}")
     if not resolved_ip:
         # Handle DNS resolution errors
         logger.debug(f"Error during DNS resolution for {domain}")
@@ -109,15 +108,11 @@ async def scrape_website_async(
             "error": f"DNS resolution failed for {domain}"
         }
 
-    logger.debug(f"DNS result ---> {resolved_ip}")
-
     page, context, browser = None, None, None
 
     try:
         async with async_playwright() as playwright:
-            logger.debug(f"Starting scraping process of {url}...")
             browser = await playwright.chromium.launch(headless=True, args=["--disable-images", "--disable-plugins", "--blink-settings=imagesEnabled=false", "--ignore-certificate-errors"])
-            logger.debug(f"Chromium has been launched...")
             context = await browser.new_context(
                 user_agent=IPHONE_FIREFOX_AGENT,
                 viewport={"width": 390, "height": 844},
@@ -129,11 +124,12 @@ async def scrape_website_async(
             logger.debug(f"Creating new page...")
             page = await context.new_page()
 
-            await page.route(
+            page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
             )
-            """
+            
+            
             logger.debug(f"Adding response task to capture..")
             page.on(
                 "response",
@@ -143,11 +139,13 @@ async def scrape_website_async(
                     )
                 )
             )
-            """
+            
+            
             logger.debug(f"Finished setup, opening {url}...")
-            await page.goto(url,timeout=max_wait_time)
+            await page.goto(url)
             logger.debug(f"Page goto has finished...")
 
+            
             html_content = await page.content()
 
             logger.debug(f"First html with length {len(html_content)} content gathered...")
@@ -155,17 +153,17 @@ async def scrape_website_async(
             await page.wait_for_selector("body", timeout=max_wait_time)
 
             logger.debug(f"Body has been awaited...")
-
-            await asyncio.sleep(1)
-
+            await asyncio.sleep(0.2)
+            
+            
             final_url = page.url
             redirect_domain = is_redirected_to_different_domain(url, final_url)
             unchanged_iterations, changed_iterations, total_iterations = 0, 0, 0
             previous_content = None
             current_content = html_content
 
-            while total_iterations < 1.5 * (unchanged_iterations + changed_iterations):
-                logger.debug(f"Entering loop...")
+            while total_iterations < (unchanged_iterations + changed_iterations):
+                status_code = "loading"
                 total_iterations += 1
                 current_content = await page.content()
                 if current_content != previous_content:
@@ -179,13 +177,10 @@ async def scrape_website_async(
                     changed_iterations = 0
                 if unchanged_iterations >= no_change_limit:
                     break
-                logger.debug(f"unchanged iterations {unchanged_iterations}, changed_iterations {changed_iterations}")
-                logger.debug(f"Exiting loop...")
                 await asyncio.sleep(check_interval / 1600.0)
 
             html_content = current_content or ""
-            logger.debug(f"Second html with length {len(html_content)} content gathered...")
-
+            
             try:
                 status_code = await page.evaluate("() => document.readyState")
                 status_code = "complete" if status_code == "complete" else "loading"
@@ -194,16 +189,15 @@ async def scrape_website_async(
             except Exception as e:
                 logger.debug(f"Error during page evaluation: {e}")
                 status_code = "error"
-
+            
+            
             await asyncio.gather(*script_capture_tasks)
-
             js_filepaths = [urlparse(url).path for url in script_urls]
-            
-            
             for script in script_contents:
                 if detect_obfuscation(script):
                     has_obfuscation = True
                     break
+        
             
     except asyncio.CancelledError:
         logger.debug(f"Task was cancelled while processing domain {domain}. Cleaning up.")
@@ -292,7 +286,7 @@ async def handle_request(route: Route, request: Request, loaded_resources):
         resource_type = request.resource_type  # Get the resource type (e.g., 'image', 'stylesheet')
 
         # Block resources that are not needed for scraping
-        if resource_type in ["image", "stylesheet", "font", "media"]:
+        if resource_type in ["image", "stylesheet", "font", "media", "document"]:
             logger.debug(f"Aborting resource of type {resource_type} at {url}")
             await route.abort()  # Abort loading images, CSS, fonts, and media files
         elif any(domain in url for domain in ["ads", "analytics", "doubleclick", "googletagmanager", "adservice"]):
