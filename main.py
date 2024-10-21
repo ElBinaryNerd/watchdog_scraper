@@ -53,8 +53,8 @@ async def pulsar_acknowledgment_function(pulsar_manager, msg, task, result):
     """
     consumer, message = msg  # Extract the consumer and message tuple
 
-    # Produce a new message to the producer topic, including the result
-    await pulsar_manager.produce_message(f"Processed task: {task}, Result: {result}")
+    # Produce a new message to the producer topic
+    await pulsar_manager.produce_message(result)
     logger.debug(f"Produced message for task: {task} with result: {result}")
 
     # Acknowledge the message via the consumer
