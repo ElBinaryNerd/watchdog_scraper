@@ -1,7 +1,7 @@
 import asyncio
 import msgpack
 import zstandard as zstd
-#from app.global_vars import plugin_manager
+from app.global_vars import plugin_manager
 from app.processing.html_sublimation import HtmlSublimator
 import logging
 
@@ -35,7 +35,7 @@ async def from_scraper_to_parsed_data(scraped_data):
         dom_tag_sequence_future = loop.run_in_executor(None, sublimator.get_tag_sequence)
         
         # Use the global plugin_manager for plugin processing
-        #plugins_results_future = loop.run_in_executor(None, plugin_manager.process_html, html_content)
+        plugins_results_future = loop.run_in_executor(None, plugin_manager.process_html, html_content)
 
         # Gather the results, handling errors in individual tasks
         results = await asyncio.gather(
@@ -43,7 +43,7 @@ async def from_scraper_to_parsed_data(scraped_data):
             readable_text_future,
             simhash_future,
             dom_tag_sequence_future,
-            #plugins_results_future,
+            plugins_results_future,
             return_exceptions=True
         )
 
@@ -72,7 +72,7 @@ async def from_scraper_to_parsed_data(scraped_data):
         "text_orig": readable_text,
         "simhash": simhash,
         "dom_tag_sequence": dom_tag_sequence,
-        #"plugins": plugins_results
+        "plugins": plugins_results
     })
 
     # Serialize the updated scraped_data using msgpack

@@ -1,5 +1,7 @@
 import pulsar
 import logging
+import msgpack
+
 
 # Configure logging
 logger = logging.getLogger("PulsarManager")
@@ -39,7 +41,7 @@ class PulsarManager:
         Sends a message to the producer topic.
         :param message: The message content to be sent (str or bytes).
         """
-        self.producer.send(message.encode('utf-8'))  # Encode message to bytes
+        self.producer.send(msgpack.packb(message))  # Encode message to bytes
         logger.debug(f"Produced message to {self.producer_topic}: {message}")
 
     async def pulsar_task_fetcher(self):
