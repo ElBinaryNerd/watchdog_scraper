@@ -2,7 +2,6 @@ import pulsar
 import logging
 import msgpack
 
-
 # Configure logging
 logger = logging.getLogger("PulsarManager")
 

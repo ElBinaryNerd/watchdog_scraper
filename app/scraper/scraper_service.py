@@ -1,8 +1,7 @@
 import re
-import os
 import logging
 import asyncio
-import warnings
+import time
 import dns.resolver
 from async_timeout import timeout
 from urllib.parse import urlparse
@@ -13,6 +12,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError
 )
 from dotenv import load_dotenv
+from app.global_vars import proxy_manager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,8 +34,7 @@ IPHONE_FIREFOX_AGENT = (
     "(KHTML, like Gecko) FxiOS/131.0 Mobile/15E148 Safari/605.1.15"
 )
 
-# Set to track already requested URLs
-loaded_resources = set()
+
 
 def dns_resolve(domain, timeout_duration=1):
     resolver = dns.resolver.Resolver()
@@ -75,6 +74,11 @@ async def scrape_website_async(
     if not url.startswith("http"):
         url = "https://" + url
 
+    time_start = time.time()
+    proxy = proxy_manager.get_proxy()
+    proxy_address = f"http://{proxy.get_address()}"
+    proxy_success = True
+
     redirect_domain = False
     has_obfuscation = False
     js_filepaths = []
@@ -84,6 +88,9 @@ async def scrape_website_async(
     script_contents = []
     script_capture_tasks = []
     html_content = ''
+    
+    # Set to track already requested ressources
+    loaded_resources = set()
 
     resolved_ip = None
     resolved_ip = dns_resolve(domain)
@@ -116,11 +123,12 @@ async def scrape_website_async(
                 viewport={"width": 390, "height": 844},
                 java_script_enabled=True,
                 locale="en-GB",
-                timezone_id="America/New_York"
+                timezone_id="America/New_York",
+                proxy={"server": proxy_address}, 
             )
             logger.debug(f"Creating new page...")
             page = await context.new_page()
-            """
+            
             await page.route(
                 "**/*",
                 lambda route, request: asyncio.create_task(handle_request(route, request, loaded_resources))
@@ -135,7 +143,7 @@ async def scrape_website_async(
                     )
                 )
             )
-            
+            """
             logger.debug(f"Finished setup, opening {url}...")
             await page.goto(url,timeout=max_wait_time)
             logger.debug(f"Page goto has finished...")
@@ -223,6 +231,7 @@ async def scrape_website_async(
         }
 
     except Exception as e:
+        proxy_success = False
         logger.debug(f"Error while scraping {url}: {e}")
         return {
             "domain": url,
@@ -236,6 +245,9 @@ async def scrape_website_async(
         }
 
     finally:
+        load_time = (time.time() - time_start)
+        proxy_manager.update_load_time(proxy, load_time, proxy_success)
+        
         try:
             if context:
                 await context.close()

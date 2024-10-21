@@ -1,17 +1,9 @@
 import asyncio
 import logging
 import time
+from app.global_vars import proxy_manager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger("ScraperService")
-
 
 class TaskProcessingManager:
     def __init__(self, 
@@ -96,7 +88,7 @@ class TaskProcessingManager:
                     # Task was processed successfully
                     await self.increment_success_count()
                 except Exception as e:
-                    logger.error(f"Error processing task {task}: {e}")
+                    print(f"Error processing task {task}: {e}")
                     # Task produced an error
                     await self.increment_error_count()
                 finally:
@@ -127,18 +119,26 @@ class TaskProcessingManager:
             await asyncio.sleep(self.log_interval)
 
             async with self.lock:
+
+                # This method needs to be called periodically to ensure that 
+                # proxies are added back to the pool after their cooldown expires.
+                proxy_manager.cooldown_check()
+
                 queue_size = self.queue.qsize()  # Get the current queue size
                 avg_processing_time = (sum(self.processing_times) / len(self.processing_times)) if self.processing_times else 0
                 throughput = self.total_processed / self.log_interval if self.log_interval > 0 else 0
                 error_rate = (self.error_count / self.total_processed) * 100 if self.total_processed > 0 else 0
 
-                logger.info(f"{self.success_count} messages processed successfully in the last {self.log_interval} seconds.")
-                logger.info(f"{self.error_count} messages produced an error in the last {self.log_interval} seconds.")
-                logger.info(f"{queue_size} items currently in the queue.")
-                logger.info(f"{self.active_workers} active workers out of {self.processors_number} total workers.")
-                logger.info(f"Average task processing time: {avg_processing_time:.2f} seconds.")
-                logger.info(f"Throughput: {throughput:.2f} tasks per second.")
-                logger.info(f"Error rate: {error_rate:.2f}%.")
+                print("-------------------------------------------------")
+                print(f"{self.success_count} messages processed successfully in the last {self.log_interval} seconds.")
+                print(f"{self.error_count} messages produced an error in the last {self.log_interval} seconds.")
+                print("-------------------------------------------------")
+                print(f"{queue_size} items currently in the queue.")
+                print(f"{self.active_workers} active workers out of {self.processors_number} total workers.")
+                print(f"Average task processing time: {avg_processing_time:.2f} seconds.")
+                print(f"Throughput: {throughput:.2f} tasks per second.")
+                print(f"Error rate: {error_rate:.2f}%.")
+                print(f"{proxy_manager.show_proxies()}")
 
                 # Reset the counters
                 self.success_count = 0
