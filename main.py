@@ -74,9 +74,9 @@ async def main():
     task_processing_manager = TaskProcessingManager(
         task_fetcher=pulsar_manager.pulsar_task_fetcher,
         task_processor_action=task_processor_action,
-        processors_number=60,
+        processors_number=50,
         queue_maxsize=1,
-        semaphore_value=100,
+        semaphore_value=50,
         # Pass the pulsar_manager along with the other arguments to the acknowledgment function
         acknowledgment_function=lambda msg, task, result: pulsar_acknowledgment_function(pulsar_manager, msg, task, result),
         log_interval=60  # Log and reset every 60 seconds

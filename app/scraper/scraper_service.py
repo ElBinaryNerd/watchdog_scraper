@@ -55,17 +55,47 @@ def is_redirected_to_different_domain(initial_url, final_url):
     final_domain = urlparse(final_url).netloc
     return final_domain if initial_domain != final_domain else False
 
-
-def detect_obfuscation(js_code, threshold=5, density_threshold=0.05):
+def detect_obfuscation(js_code, threshold=5, density_threshold=0.05, sample_ratio=0.25):
     """
-    Detect obfuscation by analyzing the density of hexadecimal patterns.
+    Efficiently detect obfuscation by analyzing the density of hexadecimal patterns.
+    Early exits if the first portion of the code shows low density.
     """
-    hex_pattern = r'0x[0-9a-fA-F]+'
-    hex_matches = re.findall(hex_pattern, js_code)
-    hex_count = len(hex_matches)
+    hex_pattern = re.compile(r'0x[0-9a-fA-F]+')
     code_length = len(js_code)
-    density = hex_count / code_length if code_length > 0 else 0
-    return hex_count > threshold and density > density_threshold
+
+    if code_length == 0:  # Return early if the code is empty
+        return False
+
+    # Determine the portion of the code to analyze for early exit (e.g., 25%)
+    sample_length = int(code_length * sample_ratio)
+    sample_code = js_code[:sample_length]
+
+    hex_count = 0
+
+    # Analyze only the first portion for an early decision
+    for match in hex_pattern.finditer(sample_code):
+        hex_count += 1
+        # If hex_count exceeds the threshold, check density and return early
+        if hex_count > threshold:
+            density = hex_count / sample_length
+            return density > density_threshold
+
+    # If threshold wasn't exceeded, check if the density in the sampled portion is low enough
+    density = hex_count / sample_length
+    if density <= density_threshold:
+        return False  # Early exit, no obfuscation detected in the sampled portion
+
+    # Continue processing the entire code if early exit condition is not met
+    for match in hex_pattern.finditer(js_code[sample_length:]):
+        hex_count += 1
+        if hex_count > threshold:
+            density = hex_count / code_length
+            return density > density_threshold
+
+    # Final density check after analyzing the entire file
+    density = hex_count / code_length
+    return density > density_threshold
+
 
 
 async def scrape_website_async(
@@ -153,7 +183,6 @@ async def scrape_website_async(
             await page.wait_for_selector("body", timeout=max_wait_time)
 
             logger.debug(f"Body has been awaited...")
-            await asyncio.sleep(0.2)
             
             
             final_url = page.url
@@ -179,17 +208,8 @@ async def scrape_website_async(
                     break
                 await asyncio.sleep(check_interval / 1600.0)
 
-            html_content = current_content or ""
-            
-            try:
-                status_code = await page.evaluate("() => document.readyState")
-                status_code = "complete" if status_code == "complete" else "loading"
-            except asyncio.TimeoutError:
-                status_code = "loading"
-            except Exception as e:
-                logger.debug(f"Error during page evaluation: {e}")
-                status_code = "error"
-            
+            status_code = "complete"
+            html_content = current_content
             
             await asyncio.gather(*script_capture_tasks)
             js_filepaths = [urlparse(url).path for url in script_urls]
