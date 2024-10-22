@@ -118,6 +118,7 @@ async def scrape_website_async(
     script_contents = []
     script_capture_tasks = []
     html_content = ''
+    status_code = 'Failed'
     
     # Set to track already requested ressources
     loaded_resources = set()
@@ -141,6 +142,7 @@ async def scrape_website_async(
     page, context, browser = None, None, None
 
     try:
+
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True, args=["--disable-images", "--disable-plugins", "--blink-settings=imagesEnabled=false", "--ignore-certificate-errors"])
             context = await browser.new_context(
@@ -217,7 +219,6 @@ async def scrape_website_async(
                 if detect_obfuscation(script):
                     has_obfuscation = True
                     break
-        
             
     except asyncio.CancelledError:
         logger.debug(f"Task was cancelled while processing domain {domain}. Cleaning up.")
